@@ -1,0 +1,27 @@
+# Requisitos del proyecto - Python 3.12.7
+# Versiones fijadas para reproducibilidad. Instalar con:
+#   pip install -r requirements.txt
+
+# Manipulación de datos
+numpy==1.26.4
+pandas==2.2.3
+scipy==1.13.1
+
+# Machine Learning / NLP
+scikit-learn==1.5.2
+nltk==3.9.1
+joblib==1.4.2
+
+# Visualización
+matplotlib==3.9.2
+seaborn==0.13.2
+
+# Jupyter
+jupyterlab==4.2.5
+ipykernel==6.29.5
+
+# Interfaz web
+streamlit==1.40.1
+
+# Pruebas
+pytest==8.3.3

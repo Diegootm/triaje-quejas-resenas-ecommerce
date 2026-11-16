@@ -1,0 +1,66 @@
+# --- Entornos virtuales ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# --- Herramientas y cachés ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# --- Sistema operativo / editores ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# --- Secretos y configuración local ---
+.env
+.env.*
+!.env.example
+
+# --- Datos crudos ---
+# El zip de Kaggle se puede versionar (no se ignora aquí).
+# Los CSV/XLSX crudos suelen ser pesados: se ignoran.
+datos/crudos/*.csv
+datos/crudos/*.xlsx
+datos/crudos/*.xls
+datos/crudos/*.json
+!datos/crudos/.gitkeep
+
+# --- Datos procesados ---
+datos/procesados/*
+!datos/procesados/.gitkeep
+
+# --- Modelos y artefactos entrenados ---
+modelos/*
+!modelos/.gitkeep
+*.pkl
+*.joblib
+*.h5
+*.onnx
+
+# --- Salidas y reportes generados ---
+salidas/
+reportes/
+*.log
