@@ -1,131 +1,172 @@
-"""Punto de entrada de la interfaz Streamlit del proyecto.
+"""Interfaz Streamlit del agente de triaje de quejas.
 
-Este archivo es un esqueleto funcional: permite probar la pantalla y el flujo
-de entrada, pero todavía NO carga modelos entrenados ni realiza inferencia real.
-Cuando exista un modelo en ``modelos/``, se conectará aquí.
+Carga los modelos entrenados (vectorizador TF-IDF, SVD y K-means) y, para cada
+queja nueva, sugiere el grupo más cercano junto con sus términos
+representativos y las reseñas más parecidas del corpus.
 
-Ejecución local:
+Ejecución local (desde la raíz del repositorio):
 
     streamlit run app/app_streamlit.py
 """
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+import pandas as pd
 import streamlit as st
 
-DESCRIPCION = (
-    "Prototipo para agrupar y priorizar quejas a partir de reseñas de "
-    "e-commerce. El texto de las reseñas se mantiene en su idioma original "
-    "(inglés)."
-)
+RAIZ = Path(__file__).resolve().parents[1]
+if str(RAIZ) not in sys.path:
+    sys.path.insert(0, str(RAIZ))
 
-ESTADO = (
-    "La base del repositorio está creada. Aún no se han entrenado modelos ni "
-    "ejecutado pruebas, por lo que esta pantalla no produce clasificaciones "
-    "reales."
-)
+from codigo.triaje import AgenteTriaje  # noqa: E402
+
+EJEMPLOS = {
+    "Talla": "It runs very small, I had to return it for a larger size.",
+    "Calidad y precio": "Poor quality fabric, not worth the price.",
+    "Silueta": "The cut is not flattering at all, too many pleats.",
+    "Apariencia": "It looked nothing like the picture, very boxy and wide.",
+}
 
 
 def _configurar_pagina() -> None:
-    st.set_page_config(
-        page_title="Triaje de quejas de reseñas",
-        page_icon=":material/space_dashboard:",
-        layout="wide",
-    )
+    st.set_page_config(page_title="Triaje de quejas de reseñas", page_icon=":material/space_dashboard:", layout="wide")
 
 
-def _barra_lateral() -> None:
+@st.cache_resource(show_spinner="Cargando modelos entrenados...")
+def _cargar_agente() -> AgenteTriaje:
+    return AgenteTriaje()
+
+
+def _barra_lateral(agente: AgenteTriaje) -> None:
     with st.sidebar:
-        st.header("Configuración")
-        st.caption(
-            "La selección de modelo se habilitará cuando exista un artefacto "
-            "entrenado en la carpeta modelos/."
-        )
-        st.selectbox(
-            "Modelo",
-            options=["Sin modelo entrenado"],
-            disabled=True,
-            help="Pendiente: cargar el modelo y el vectorizador TF-IDF.",
-        )
-        st.selectbox(
-            "Definición de queja",
-            options=[
-                "Pendiente de definir (Rating / Recommended IND)",
-            ],
-            disabled=True,
-            help="La definición se documentará y se fijará en una etapa posterior.",
+        st.header("Modelo cargado")
+        st.markdown(
+            f"- Vocabulario TF-IDF: **{len(agente.vectorizador.vocabulary_):,}** términos (1-2 gramas)\n"
+            f"- SVD truncada: **{agente.svd.n_components}** componentes\n"
+            f"- K-means: **K = {agente.n_grupos}** grupos\n"
+            f"- Corpus de quejas: **{len(agente.corpus):,}** reseñas"
         )
         st.divider()
-        st.markdown("**Estado**")
-        st.info(ESTADO)
-
-
-def _pestana_texto() -> None:
-    st.subheader("Analizar una reseña")
-    texto = st.text_area(
-        "Texto de la reseña (inglés)",
-        height=180,
-        placeholder="Ejemplo: The fabric felt cheap and the size ran small...",
-    )
-    if st.button("Analizar reseña", type="primary"):
-        if not texto.strip():
-            st.warning("Escribe el texto de una reseña para continuar.")
-        else:
-            st.info(
-                "Entrada recibida. La clasificación estará disponible cuando se "
-                "entrene y cargue el modelo."
-            )
-
-
-def _pestana_lote() -> None:
-    st.subheader("Analizar un lote de reseñas")
-    archivo = st.file_uploader(
-        "Archivo CSV con reseñas",
-        type=["csv"],
-        help="Se espera una columna de texto, por ejemplo 'Review Text'.",
-    )
-    if archivo is not None:
-        st.success(f"Archivo cargado: {archivo.name}")
+        st.markdown("**Criterio de queja**")
+        st.caption("Rating ≤ 2  **o**  Recommended IND = 0  **o**  VADER compound ≤ −0.05")
+        st.divider()
         st.caption(
-            "La lectura, validación de columnas y clasificación por lote se "
-            "implementarán junto con el pipeline de preprocesamiento."
+            "El agente solo **sugiere** un grupo: no resuelve la queja ni responde al cliente. "
+            "El modelo fue entrenado con reseñas en **inglés**."
         )
-    else:
+
+
+def _mostrar_resultado(agente: AgenteTriaje, texto: str) -> None:
+    r = agente.sugerir(texto, n_similares=5)
+    st.markdown(f"**Texto preprocesado:** `{r.texto_limpio or '(vacío)'}`")
+    if not r.valido:
+        st.error(r.aviso)
+        st.caption("Prueba escribir la queja en inglés, por ejemplo: " + EJEMPLOS["Talla"])
+        return
+
+    col1, col2 = st.columns([3, 2])
+    with col1:
+        st.success(f"**Grupo sugerido: {r.grupo} — {r.nombre}**")
+        if r.aviso:
+            st.warning(r.aviso)
+        st.markdown("**Términos representativos del grupo:** " + ", ".join(f"`{t}`" for t in r.terminos[:8]))
+    with col2:
+        tabla = pd.DataFrame({
+            "grupo": [f"{i}: {agente.nombres[i][:28]}" for i in range(agente.n_grupos)],
+            "distancia": r.distancias,
+        })
+        st.markdown("**Distancia a cada centroide** (menor = más parecido)")
+        st.bar_chart(tabla, x="grupo", y="distancia", horizontal=True, height=240)
+
+    st.markdown("**Reseñas más parecidas del corpus** (similitud del coseno)")
+    st.dataframe(
+        pd.DataFrame(r.similares).rename(columns={"similitud": "coseno", "texto": "reseña"}),
+        hide_index=True, use_container_width=True,
+        column_config={"coseno": st.column_config.NumberColumn(format="%.3f")},
+    )
+
+
+def _pestana_texto(agente: AgenteTriaje) -> None:
+    st.subheader("Analizar una queja")
+    st.caption("Ejemplos rápidos:")
+    columnas = st.columns(len(EJEMPLOS))
+    for col, (etiqueta, ejemplo) in zip(columnas, EJEMPLOS.items()):
+        if col.button(etiqueta, use_container_width=True):
+            st.session_state["queja"] = ejemplo
+    texto = st.text_area("Texto de la queja (inglés)", key="queja", height=120,
+                         placeholder="Ejemplo: The fabric felt cheap and the size ran small...")
+    if st.button("Sugerir grupo", type="primary"):
+        if not texto.strip():
+            st.warning("Escribe el texto de una queja para continuar.")
+        else:
+            _mostrar_resultado(agente, texto)
+
+
+def _pestana_lote(agente: AgenteTriaje) -> None:
+    st.subheader("Analizar un lote de quejas (CSV)")
+    archivo = st.file_uploader("Archivo CSV", type=["csv"], help="Debe tener una columna de texto, p. ej. 'Review Text'.")
+    if archivo is None:
         st.caption("Todavía no se ha cargado ningún archivo.")
+        return
+    df = pd.read_csv(archivo)
+    columnas_texto = [c for c in df.columns if df[c].dtype == object]
+    if not columnas_texto:
+        st.error("El CSV no tiene columnas de texto.")
+        return
+    defecto = columnas_texto.index("Review Text") if "Review Text" in columnas_texto else 0
+    columna = st.selectbox("Columna con el texto", columnas_texto, index=defecto)
+    limite = st.number_input("Máximo de filas a procesar", 1, len(df), min(len(df), 500))
+    if st.button("Clasificar lote", type="primary"):
+        filas = []
+        barra = st.progress(0.0)
+        datos = df.head(int(limite))
+        for i, texto in enumerate(datos[columna].fillna("").astype(str)):
+            r = agente.sugerir(texto, n_similares=0)
+            filas.append({
+                "texto": texto,
+                "grupo": r.grupo if r.valido else None,
+                "nombre": r.nombre if r.valido else "Sin vocabulario conocido",
+                "poco_seguro": r.poco_seguro,
+            })
+            barra.progress((i + 1) / len(datos))
+        resultado = pd.DataFrame(filas)
+        st.bar_chart(resultado["nombre"].value_counts(), horizontal=True)
+        st.dataframe(resultado, hide_index=True, use_container_width=True)
+        st.download_button("Descargar resultado (CSV)", resultado.to_csv(index=False).encode("utf-8"),
+                           "triaje_resultado.csv", "text/csv")
+
+
+def _pestana_grupos(agente: AgenteTriaje) -> None:
+    st.subheader("Distribución de las quejas del corpus por grupo")
+    dist = agente.distribucion()
+    st.bar_chart(dist.set_index("nombre")["quejas"], horizontal=True)
+    dist["términos principales"] = [", ".join(agente.terminos[int(g)][:8]) for g in dist["grupo"]]
+    st.dataframe(dist, hide_index=True, use_container_width=True)
+    st.caption("Los nombres de los grupos son una interpretación humana posterior; no se usaron para entrenar.")
 
 
 def main() -> None:
-    """Renderiza la aplicación."""
     _configurar_pagina()
+    st.title("Agente de triaje de quejas en reseñas de productos")
+    st.write("Aprendizaje no supervisado (TF-IDF + SVD + K-means) sobre *Women's E-Commerce Clothing Reviews*.")
+    try:
+        agente = _cargar_agente()
+    except FileNotFoundError as error:
+        st.error(str(error))
+        st.code("python entrenar_agente.py", language="bash")
+        st.stop()
 
-    st.title("Triaje de quejas de reseñas de e-commerce")
-    st.write(DESCRIPCION)
-
-    _barra_lateral()
-
-    pestana_texto, pestana_lote, pestana_estado = st.tabs(
-        ["Reseña individual", "Lote CSV", "Estado del proyecto"]
-    )
-
-    with pestana_texto:
-        _pestana_texto()
-
-    with pestana_lote:
-        _pestana_lote()
-
-    with pestana_estado:
-        st.subheader("Alcance actual")
-        st.markdown(
-            "- Estructura del repositorio y módulos documentados.\n"
-            "- Interfaz mínima sin dependencia de modelos entrenados.\n"
-            "- Pendiente: preprocesamiento, TF-IDF, KMeans, evaluación y "
-            "etiquetado.\n"
-            "- Pendiente: definición formal de \"queja\" y su justificación."
-        )
-        st.caption(
-            "Los datos crudos pesados y los modelos generados no se versionan; "
-            "consulta el README para preparar el entorno."
-        )
+    _barra_lateral(agente)
+    t1, t2, t3 = st.tabs(["Queja individual", "Lote CSV", "Grupos descubiertos"])
+    with t1:
+        _pestana_texto(agente)
+    with t2:
+        _pestana_lote(agente)
+    with t3:
+        _pestana_grupos(agente)
 
 
 if __name__ == "__main__":

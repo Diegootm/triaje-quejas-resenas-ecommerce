@@ -1,218 +1,133 @@
 # Triaje de quejas de reseñas de e-commerce
 
-Base de un proyecto de análisis y agrupamiento (clustering) de reseñas de
-clientes de una tienda de ropa online. El objetivo es identificar y priorizar
-**quejas** dentro de un volumen grande de reseñas, agrupando los textos por
-temas similares para que el equipo pueda revisarlos y atenderlos de forma
-ordenada.
+Agente de triaje de quejas en reseñas de productos (Inteligencia Artificial,
+FCyT-UMSS, Grupo 6). Área: aprendizaje no supervisado. Subárea: procesamiento
+de lenguaje natural.
 
-El dataset de trabajo es **Women's E-Commerce Clothing Reviews** (Kaggle,
-textos en inglés). El texto se conserva en su idioma original: no se traduce,
-porque la traducción puede alterar matices y dificultar la interpretación de
-los términos que definen cada clúster.
+El agente recibe el texto de una queja y **sugiere el grupo de quejas al que
+más se parece**, mostrando los términos del grupo y reseñas similares. No
+resuelve la queja ni responde al cliente.
 
-## Objetivo
+Dataset: **Women's E-Commerce Clothing Reviews** (Kaggle, CC0, 23 486 reseñas
+en inglés). El texto no se traduce.
 
-1. Preparar y limpiar las reseñas.
-2. Representar el texto con TF-IDF.
-3. Agrupar las reseñas con KMeans y elegir el número de clústeres.
-4. Evaluar la calidad y la estabilidad del agrupamiento.
-5. Etiquetar cada clúster con sus términos más representativos.
-6. Exponer una interfaz mínima para revisar el resultado.
+## Pipeline
 
-Esta etapa entrega la **estructura del repositorio, la documentación y
-esqueletos de código**. Todavía no se han ejecutado entrenamientos ni pruebas,
-y los módulos de `codigo/` lanzan `NotImplementedError` de forma intencional.
+```text
+CSV (23 486) ──► criterio de queja: Rating<=2 OR Recommended=0 OR VADER<=-0.05 ──► 4 675 quejas
+           ──► preprocesamiento (minúsculas, contracciones, limpieza, tokens,
+               stopwords sin negaciones, lematización)
+           ──► TF-IDF (1-2 gramas, 5 000 términos) ──► SVD truncada (100) ──► K-means (K = 6)
+           ──► evaluación (silueta 0.0216, ARI 0.4014) ──► nombres post-hoc ──► interfaz de triaje
+```
 
-## Estructura del proyecto
+## Estructura
 
 ```text
 .
-├── .gitignore
-├── .python-version          # 3.12.7
-├── README.md
-├── requirements.txt
-├── app/
-│   └── app_streamlit.py     # Punto de entrada de la interfaz
+├── app/app_streamlit.py      # Interfaz de triaje (conectada a los modelos)
 ├── codigo/
-│   ├── __init__.py
-│   ├── preprocesamiento.py  # Limpieza, stopwords, lematización
-│   ├── caracteristicas.py   # Vectorización TF-IDF
-│   ├── agrupamiento.py      # KMeans y selección de k
-│   ├── evaluacion.py        # Silueta, ARI, estabilidad
-│   └── etiquetado.py        # Términos top por clúster
-├── cuadernos/
-│   ├── 01_analisis_exploratorio.ipynb
-│   ├── 02_preprocesamiento.ipynb
-│   ├── 03_agrupamiento.ipynb
-│   └── 04_evaluacion.ipynb
-├── datos/
-│   ├── crudos/              # archive.zip y CSV/XLSX de Kaggle (no versionados)
-│   └── procesados/          # Salidas intermedias (no versionadas)
-├── interfaz/
-│   └── README.md            # Apunta a app/app_streamlit.py
-├── modelos/                 # Modelos y vectorizadores serializados
-└── pruebas/                 # Pruebas automatizadas
+│   ├── preprocesamiento.py   # Carga, criterio de queja (VADER) y limpieza del texto
+│   ├── caracteristicas.py    # TF-IDF
+│   ├── agrupamiento.py       # SVD truncada, barrido de K y K-means
+│   ├── evaluacion.py         # Silueta, ARI y contingencia
+│   ├── etiquetado.py         # Términos top y nombres de grupos
+│   └── triaje.py             # AgenteTriaje: sugiere el grupo de una queja nueva
+├── cuadernos/                # 01 exploratorio · 02 preprocesamiento · 03 agrupamiento · 04 evaluación
+├── datos/crudos/             # CSV de Kaggle (y archive.zip)
+├── datos/procesados/         # resenas_filtradas.csv, resenas_limpias.csv
+├── modelos/                  # vectorizador.joblib, svd_lsa.joblib, modelo_kmeans.joblib (se generan)
+├── pruebas/test_proyecto.py  # pytest
+├── entrenar_agente.py        # Entrena todo sin Jupyter (mismo resultado que los cuadernos)
+└── triaje_cli.py             # Triaje desde la terminal
 ```
 
+## Instalación
 
-## Requisitos
+Requisitos: **Python 3.12** (fijado 3.12.7 en `.python-version`) y `git`.
+No uses Python 3.13 o 3.14: `numpy==1.26.4` no se instala en esas versiones.
 
-- Linux (probado en una distribución de escritorio estándar).
-- **Python 3.12.7** (ver `.python-version`).
-- [pyenv](https://github.com/pyenv/pyenv) recomendado para fijar la versión.
-- `git`, `unzip` y acceso a los datos de Kaggle.
+### Windows (PowerShell)
 
-## Instalación paso a paso
-
-### 1. Clonar el repositorio y entrar en él
-
-```bash
-git clone <URL_DEL_REPOSITORIO>
+```powershell
+git clone https://github.com/Diegootm/triaje-quejas-resenas-ecommerce.git
 cd triaje-quejas-resenas-ecommerce
+py -3.12 -m venv venv              # si no tienes 3.12: py install 3.12
+.\venv\Scripts\Activate.ps1        # si PowerShell lo bloquea: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+python -m pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-### 2. Instalar y fijar Python 3.12.7 con pyenv
+### Linux / macOS
 
 ```bash
-# Si pyenv todavía no está instalado, sigue las instrucciones oficiales.
-pyenv install 3.12.7
-pyenv local 3.12.7        # lee .python-version
-python --version          # debe mostrar Python 3.12.7
-```
-
-Si no usas pyenv, asegúrate de que `python3.12` esté disponible en el sistema.
-
-### 3. Crear y activar el entorno virtual
-
-```bash
-python -m venv venv
+git clone https://github.com/Diegootm/triaje-quejas-resenas-ecommerce.git
+cd triaje-quejas-resenas-ecommerce
+python3.12 -m venv venv            # o pyenv install 3.12.7 && pyenv local 3.12.7
 source venv/bin/activate
-```
-
-### 4. Instalar dependencias
-
-```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Las versiones están fijadas con `==` para facilitar la reproducibilidad.
-
-### 5. Registrar el kernel de Jupyter (opcional, recomendado)
+## Uso
 
 ```bash
-python -m ipykernel install --user --name triaje-quejas --display-name "Python (triaje-quejas)"
+python entrenar_agente.py                 # 1. entrena (≈40 s) y guarda los modelos en modelos/
+streamlit run app/app_streamlit.py        # 2. abre la interfaz en http://localhost:8501
+python triaje_cli.py "It runs very small, I had to return it for a larger size."   # alternativa por terminal
+python -m pytest -q                       # pruebas (7 pruebas)
 ```
 
-## Preparar los datos
+`python entrenar_agente.py --barrido` imprime además la tabla de inercia y
+silueta para K = 2..12 (método del codo).
 
-1. Descarga el dataset **Women's E-Commerce Clothing Reviews** desde Kaggle.
-2. Coloca el archivo en `datos/crudos/`. El repositorio ya contiene
-   `datos/crudos/archive.zip`.
-3. Extrae el contenido dentro de `datos/crudos/` (sin modificar el zip
-   original):
+### Cuadernos de Jupyter (alternativa a `entrenar_agente.py`)
 
-   ```bash
-   unzip datos/crudos/archive.zip -d datos/crudos/
-   ```
-
-   Normalmente se obtiene un CSV como
-   `Womens Clothing E-Commerce Reviews.csv`.
-
-4. Verifica las columnas esperadas:
-
-   ```text
-   Clothing ID, Age, Title, Review Text, Rating, Recommended IND,
-   Positive Feedback Count, Division Name, Department Name, Class Name
-   ```
-
-5. Genera los datos procesados con los módulos de `codigo/` y los cuadernos.
-   Por ahora esa lógica está pendiente: las salidas deben escribirse en
-   `datos/procesados/`, que no se versiona.
-
-Ejemplo de comprobación rápida del CSV (cuando esté implementada la carga):
-
-```python
-import pandas as pd
-
-df = pd.read_csv("datos/crudos/Womens Clothing E-Commerce Reviews.csv")
-print(df.shape)
-print(df.columns.tolist())
-```
-
-## Ejecutar los cuadernos
+Los cuadernos usan el kernel llamado **`triaje312`**. Regístralo una vez con el
+entorno activado:
 
 ```bash
+python -m ipykernel install --user --name triaje312 --display-name "Python 3 (venv)"
 jupyter lab
 ```
 
-Abre los cuadernos de `cuadernos/` en orden:
+Ejecuta en orden `01` → `02` → `03` → `04` (*Run → Run All Cells*). El cuaderno
+03 guarda los modelos en `modelos/`.
 
-1. `01_analisis_exploratorio.ipynb`
-2. `02_preprocesamiento.ipynb`
-3. `03_agrupamiento.ipynb`
-4. `04_evaluacion.ipynb`
+## Resultados (reproducibles con `random_state = 42`)
 
-Selecciona el kernel `Python (triaje-quejas)` o el del entorno `venv`.
+| Indicador | Valor |
+| --- | --- |
+| Quejas seleccionadas | 4 675 de 22 641 (20.6 %); 465 solo por VADER |
+| Matriz TF-IDF | 4 675 × 5 000, densidad 0.674 % |
+| Varianza explicada por SVD(100) | 21.2 % |
+| K elegido | 6 (codo + silueta + interpretabilidad) |
+| Inercia final | 903.62 (30 iteraciones) |
+| Silueta | 0.0216 |
+| ARI medio (10 corridas, n_init = 1) | 0.4014 ± 0.1107 |
 
-## Ejecutar la interfaz
+| Grupo | Quejas | Nombre (post-hoc) |
+| --- | --- | --- |
+| 0 | 1 873 | Insatisfacción general de ajuste, color y tela |
+| 1 | 435 | Calidad y precio |
+| 2 | 361 | Expectativa vs. realidad |
+| 3 | 300 | Silueta poco favorecedora |
+| 4 | 720 | Tallaje (corre pequeña o grande) |
+| 5 | 986 | Apariencia vs. modelo (forma holgada) |
 
-```bash
-streamlit run app/app_streamlit.py
-```
+## Limitaciones conocidas (trabajo futuro)
 
-La app es un esqueleto funcional: muestra la pantalla, permite escribir una
-reseña o cargar un CSV, pero **no clasifica todavía** porque no hay un modelo
-entrenado. Cuando exista un artefacto en `modelos/`, se conectará al pipeline
-de preprocesamiento + TF-IDF + KMeans.
+- Silueta baja y estabilidad moderada: los temas de queja se mezclan.
+- El grupo 0 es amplio (40 %) y poco específico.
+- `too` no está protegido como negación/modificador ("too small" → "small").
+- La lematización no usa categoría gramatical (`ran`, `wanted`, `looked` no se reducen).
+- No se normalizan los vectores después del SVD.
+- No hay partición de prueba separada.
+- El modelo solo entiende inglés: un texto en español no comparte vocabulario
+  y la app avisa en lugar de sugerir un grupo.
 
-## Definición propuesta de "queja"
+## Notas de mantenimiento
 
-El dataset no incluye una columna explícita de queja, así que hay que
-definirla. Las dos opciones principales son:
-
-| Opción | Criterio | Ventajas | Limitaciones |
-| --- | --- | --- | --- |
-| Por `Rating` | Considerar queja una reseña con `Rating <= 2` (o `<= 3`) | Simple, objetiva y fácil de reproducir | Ignora reseñas negativas con rating alto y reseñas positivas con rating bajo |
-| Por `Recommended IND` | Considerar queja `Recommended IND == 0` | Refleja la recomendación real del cliente | Es binaria y puede no coincidir con la intensidad del problema |
-
-También puede combinarse: por ejemplo, `Rating <= 3` **o**
-`Recommended IND == 0`, y revisar los casos discrepantes.
-
-**Decisión pendiente de documentar.** La definición elegida se fijará antes de
-entrenar y se justificará en los cuadernos y en este README. Mientras tanto,
-el pipeline debe conservar ambas columnas (`Rating` y `Recommended IND`) sin
-modificarlas.
-
-## Datos y modelos en el repositorio
-
-- No se versionan los CSV/XLSX crudos ni los datos procesados.
-- El `archive.zip` existente se mantiene y no se ignora.
-- No se versionan los modelos serializados (`modelos/`), salvo que en el futuro
-  se acuerde incluir un artefacto pequeño y necesario para la demo.
-- Los `.gitkeep` conservan las carpetas vacías.
-- `.env` y variantes están ignorados; no se almacenan secretos.
-
-## Estado y validación
-
-- Estructura del repositorio: creada.
-- Dependencias: declaradas y fijadas en `requirements.txt`.
-- Módulos de `codigo/`: esqueletos documentados, sin lógica implementada.
-- Cuadernos: vacíos, pendientes de desarrollo.
-- Entrenamientos: no ejecutados.
-- Pruebas: no ejecutadas; `pytest` está incluido para la siguiente etapa.
-- Interfaz: stub funcional sin modelo.
-
-Validaciones realizadas en esta etapa: revisión de la estructura de carpetas y
-comprobación de sintaxis (AST) de los módulos de `codigo/` y de
-`app/app_streamlit.py`. No se instalaron dependencias ni se ejecutó la app.
-
-## Próximos pasos
-
-1. Implementar `codigo/preprocesamiento.py` y validar con una muestra.
-2. Implementar TF-IDF y KMeans, y elegir `k` con silueta.
-3. Evaluar estabilidad y etiquetar clústeres.
-4. Documentar la definición de queja adoptada.
-5. Conectar el modelo a `app/app_streamlit.py`.
-6. Agregar pruebas en `pruebas/`.
+- `modelos/` y los `*.joblib` no se versionan; se generan al entrenar.
+- `pyarrow` está fijado en 17.0.0 porque las versiones nuevas exigen NumPy 2 y
+  rompen las tablas y gráficos de Streamlit con `numpy==1.26.4`.

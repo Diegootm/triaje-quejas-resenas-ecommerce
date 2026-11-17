@@ -1,74 +1,70 @@
-"""Evaluación de la calidad y estabilidad del agrupamiento.
-
-Métricas internas (silueta), externas opcionales (ARI frente a etiquetas
-manuales o heurísticas) y estabilidad entre ejecuciones o submuestras.
-"""
+"""Evaluación de la calidad y estabilidad del agrupamiento (cuaderno 04)."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Sequence
+from typing import Sequence
 
-if TYPE_CHECKING:  # pragma: no cover - solo para tipado
-    import numpy as np
-    import pandas as pd
-    import scipy.sparse as sp
+import numpy as np
+import pandas as pd
+import scipy.sparse as sp
+from sklearn.cluster import KMeans
+from sklearn.metrics import adjusted_rand_score, silhouette_score
+
+SEMILLA = 42
 
 
 def coeficiente_silueta(
-    matriz: "sp.csr_matrix | np.ndarray",
+    matriz: sp.csr_matrix | np.ndarray,
     etiquetas: Sequence[int],
+    muestra: int = 4000,
+    semilla: int = SEMILLA,
 ) -> float:
-    """Calcula el coeficiente de silueta medio.
-
-    TODO: delegar en ``sklearn.metrics.silhouette_score`` y documentar la
-    métrica de distancia usada.
-    """
-    raise NotImplementedError("Pendiente: implementar el coeficiente de silueta.")
+    """Silueta promedio (Fórmula 17) con distancia euclídea, sobre una muestra."""
+    return float(silhouette_score(matriz, etiquetas, sample_size=min(muestra, matriz.shape[0]), random_state=semilla))
 
 
-def indice_rand_ajustado(
-    etiquetas_reales: Sequence[int],
-    etiquetas_predichas: Sequence[int],
-) -> float:
-    """Calcula el Adjusted Rand Index (ARI) entre dos particiones.
-
-    TODO: validar longitudes y usar ``sklearn.metrics.adjusted_rand_score``.
-    """
-    raise NotImplementedError("Pendiente: implementar el ARI.")
+def indice_rand_ajustado(etiquetas_a: Sequence[int], etiquetas_b: Sequence[int]) -> float:
+    """ARI entre dos particiones del mismo conjunto (Fórmula 18)."""
+    if len(etiquetas_a) != len(etiquetas_b):
+        raise ValueError("Las particiones deben tener la misma longitud")
+    return float(adjusted_rand_score(etiquetas_a, etiquetas_b))
 
 
 def evaluar_estabilidad(
-    matriz: "sp.csr_matrix | np.ndarray",
+    matriz: sp.csr_matrix | np.ndarray,
     k: int,
     n_repeticiones: int = 10,
-    semilla: int = 42,
-) -> "pd.DataFrame":
-    """Estima la estabilidad del agrupamiento entre repeticiones.
+) -> pd.DataFrame:
+    """Entrena K-means con semillas 0..n-1 y ``n_init=1`` y calcula el ARI de cada par.
 
-    TODO: entrenar KMeans con distintas semillas/submuestras, comparar
-    particiones con ARI y devolver media y desviación por repetición.
+    Se usa ``n_init=1`` a propósito: con ``n_init=10`` cada corrida elegiría su
+    mejor inicialización y la estabilidad saldría artificialmente alta.
     """
-    raise NotImplementedError("Pendiente: implementar la evaluación de estabilidad.")
+    particiones = [KMeans(n_clusters=k, random_state=s, n_init=1).fit_predict(matriz) for s in range(n_repeticiones)]
+    filas = [
+        {"semilla_i": i, "semilla_j": j, "ari": adjusted_rand_score(particiones[i], particiones[j])}
+        for i in range(n_repeticiones)
+        for j in range(i + 1, n_repeticiones)
+    ]
+    return pd.DataFrame(filas)
 
 
-def comparar_etiquetas_manuales(
-    df: "pd.DataFrame",
-    columna_manual: str,
-    columna_cluster: str,
-) -> "pd.DataFrame":
-    """Cruza clústeres con etiquetas manuales o heurísticas.
+def comparar_etiquetas_manuales(df: pd.DataFrame, columna_manual: str, columna_cluster: str) -> pd.DataFrame:
+    """Tabla de contingencia normalizada por fila (cada grupo suma 1).
 
-    TODO: devolver una tabla de contingencia y métricas externas asociadas.
+    Con ``columna_manual="Department Name"`` sirve para comprobar que los grupos
+    no separan por tipo de prenda (Tabla 42 del informe).
     """
-    raise NotImplementedError("Pendiente: implementar la comparación de etiquetas.")
+    tabla = pd.crosstab(df[columna_cluster], df[columna_manual])
+    return tabla.div(tabla.sum(axis=1), axis=0)
 
 
-def resumen_evaluacion(
-    matriz: "sp.csr_matrix | np.ndarray",
-    etiquetas: Sequence[int],
-) -> dict[str, float]:
-    """Agrupa las métricas principales en un diccionario.
-
-    TODO: incluir silueta, tamaño de clústeres y proporción de ruido/outliers.
-    """
-    raise NotImplementedError("Pendiente: implementar el resumen de evaluación.")
+def resumen_evaluacion(matriz: sp.csr_matrix | np.ndarray, etiquetas: Sequence[int]) -> dict[str, float]:
+    """Silueta + tamaño del grupo más grande y más chico."""
+    tamanos = np.bincount(np.asarray(etiquetas))
+    return {
+        "silueta": coeficiente_silueta(matriz, etiquetas),
+        "n_grupos": float(len(tamanos)),
+        "grupo_mayor": float(tamanos.max()),
+        "grupo_menor": float(tamanos.min()),
+    }

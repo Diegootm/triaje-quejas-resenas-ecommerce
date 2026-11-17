@@ -1,18 +1,26 @@
-"""Extracción de características de texto mediante TF-IDF.
+"""Extracción de características de texto mediante TF-IDF (cuaderno 03).
 
-Convierte el texto preprocesado en una matriz numérica dispersa apta para
-KMeans. El vectorizador entrenado debe persistirse junto al modelo para que
-la interfaz transforme nuevas reseñas de la misma forma.
+Convierte el texto preprocesado en una matriz dispersa documento-término.
+El vectorizador entrenado se guarda junto al modelo para que la interfaz
+transforme las quejas nuevas con el MISMO vocabulario e IDF.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Sequence
+from pathlib import Path
+from typing import Sequence
 
-if TYPE_CHECKING:  # pragma: no cover - solo para tipado
-    import numpy as np
-    import scipy.sparse as sp
-    from sklearn.feature_extraction.text import TfidfVectorizer
+import joblib
+import scipy.sparse as sp
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+# Nombres de prenda (lematizados) que dominan por frecuencia sin describir un problema.
+STOPWORDS_DOMINIO = [
+    "dress", "top", "shirt", "sweater", "jean", "pant", "skirt",
+    "blouse", "jacket", "coat", "cardigan", "blazer",
+]
+
+PARAMS_TFIDF = dict(max_features=5000, ngram_range=(1, 2), min_df=5, max_df=0.9)
 
 
 def construir_tfidf(
@@ -21,37 +29,43 @@ def construir_tfidf(
     ngram_range: tuple[int, int] = (1, 2),
     min_df: int | float = 5,
     max_df: float = 0.9,
-) -> tuple["sp.csr_matrix", "TfidfVectorizer"]:
+    stop_words: Sequence[str] | None = tuple(STOPWORDS_DOMINIO),
+) -> tuple[sp.csr_matrix, TfidfVectorizer]:
     """Ajusta un ``TfidfVectorizer`` y devuelve ``(matriz, vectorizador)``.
 
-    TODO: validar hiperparámetros y documentar los valores elegidos tras
-    el análisis exploratorio.
+    Valores por defecto = configuración del informe (Tabla 36): unigramas y
+    bigramas, min_df=5, max_df=0.9, 5000 términos, IDF suavizado y norma L2.
     """
-    raise NotImplementedError("Pendiente: implementar la vectorización TF-IDF.")
+    vectorizador = TfidfVectorizer(
+        stop_words=list(stop_words) if stop_words else None,
+        max_features=max_features,
+        ngram_range=ngram_range,
+        min_df=min_df,
+        max_df=max_df,
+    )
+    matriz = vectorizador.fit_transform(textos)
+    return matriz, vectorizador
 
 
-def transformar_textos(
-    textos: Sequence[str],
-    vectorizador: "TfidfVectorizer",
-) -> "sp.csr_matrix":
-    """Transforma textos nuevos con un vectorizador ya ajustado.
+def transformar_textos(textos: Sequence[str], vectorizador: TfidfVectorizer) -> sp.csr_matrix:
+    """Transforma textos nuevos con un vectorizador ya ajustado (no recalcula el IDF).
 
-    TODO: manejar textos vacíos sin romper la interfaz.
+    Un texto sin ninguna palabra del vocabulario produce una fila de ceros
+    (``matriz[i].nnz == 0``); la interfaz debe detectarlo y avisar.
     """
-    raise NotImplementedError("Pendiente: implementar la transformación de textos.")
+    return vectorizador.transform(list(textos))
 
 
-def guardar_vectorizador(vectorizador: "TfidfVectorizer", ruta: str) -> None:
-    """Serializa el vectorizador (por ejemplo con ``joblib``).
+def guardar_vectorizador(vectorizador: TfidfVectorizer, ruta: str | Path) -> None:
+    """Serializa el vectorizador con ``joblib``."""
+    ruta = Path(ruta)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(vectorizador, ruta)
 
-    TODO: crear la carpeta destino si no existe.
-    """
-    raise NotImplementedError("Pendiente: implementar el guardado del vectorizador.")
 
-
-def cargar_vectorizador(ruta: str) -> Any:
-    """Carga un vectorizador serializado desde disco.
-
-    TODO: validar que el archivo exista y devolver el objeto.
-    """
-    raise NotImplementedError("Pendiente: implementar la carga del vectorizador.")
+def cargar_vectorizador(ruta: str | Path) -> TfidfVectorizer:
+    """Carga un vectorizador serializado."""
+    ruta = Path(ruta)
+    if not ruta.exists():
+        raise FileNotFoundError(f"No existe {ruta}. Ejecuta primero el entrenamiento.")
+    return joblib.load(ruta)

@@ -1,67 +1,92 @@
-"""Etiquetado e interpretación de los clústeres.
+"""Interpretación de los grupos: términos representativos y nombres (cuaderno 04).
 
-Extrae los términos con mayor peso TF-IDF por clúster para proponer nombres
-descriptivos (por ejemplo, "tallas", "calidad de tela", "envío") y facilitar
-la revisión manual por parte del equipo.
+Los nombres de :data:`NOMBRES_CLUSTER` son una interpretación humana posterior
+(post-hoc) del modelo de referencia (K=6, semilla 42). NO se usan para
+entrenar: K-means solo ve la matriz TF-IDF/SVD.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Mapping, Sequence
+from pathlib import Path
+from typing import Mapping, Sequence
 
-if TYPE_CHECKING:  # pragma: no cover - solo para tipado
-    import numpy as np
-    import pandas as pd
-    import scipy.sparse as sp
-    from sklearn.feature_extraction.text import TfidfVectorizer
+import numpy as np
+import pandas as pd
+import scipy.sparse as sp
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+NOMBRES_CLUSTER: dict[int, str] = {
+    0: "Insatisfacción general de ajuste, color y tela",
+    1: "Calidad y precio (tela pobre, no vale lo que cuesta)",
+    2: "Expectativa vs. realidad ('quería que me gustara')",
+    3: "Silueta poco favorecedora (not flattering)",
+    4: "Tallaje (la talla corre pequeña o grande)",
+    5: "Apariencia vs. modelo (forma holgada / boxy)",
+}
 
 
 def terminos_top_por_cluster(
-    matriz: "sp.csr_matrix",
+    matriz: sp.csr_matrix,
     etiquetas: Sequence[int],
-    vectorizador: "TfidfVectorizer",
+    vectorizador: TfidfVectorizer,
     n_terminos: int = 10,
 ) -> dict[int, list[str]]:
-    """Devuelve los ``n_terminos`` más representativos de cada clúster.
+    """Términos con mayor peso TF-IDF promedio dentro de cada grupo."""
+    etiquetas = np.asarray(etiquetas)
+    vocab = np.array(vectorizador.get_feature_names_out())
+    resultado = {}
+    for c in np.unique(etiquetas):
+        medio = np.asarray(matriz[etiquetas == c].mean(axis=0)).ravel()
+        resultado[int(c)] = list(vocab[medio.argsort()[::-1][:n_terminos]])
+    return resultado
 
-    TODO: calcular el peso medio por término y clúster, excluyendo términos
-    demasiado frecuentes o poco informativos.
-    """
-    raise NotImplementedError("Pendiente: implementar la extracción de términos.")
+
+def resenas_cercanas(distancias: np.ndarray, etiquetas: Sequence[int], cluster: int, n: int = 4) -> np.ndarray:
+    """Índices de las ``n`` reseñas del grupo más cercanas a su centroide (``kmeans.transform``)."""
+    etiquetas = np.asarray(etiquetas)
+    idx = np.where(etiquetas == cluster)[0]
+    return idx[np.argsort(distancias[idx, cluster])[:n]]
 
 
 def etiquetar_clusters(
     terminos: Mapping[int, Sequence[str]],
     nombres_manuales: Mapping[int, str] | None = None,
 ) -> dict[int, str]:
-    """Propone un nombre corto por clúster a partir de sus términos.
-
-    TODO: usar ``nombres_manuales`` cuando exista y, si no, generar una
-    etiqueta provisional legible con los términos top.
-    """
-    raise NotImplementedError("Pendiente: implementar el etiquetado de clústeres.")
+    """Nombre manual si existe; si no, una etiqueta provisional con los 3 primeros términos."""
+    nombres_manuales = nombres_manuales or {}
+    return {
+        c: nombres_manuales.get(c) or f"Grupo {c}: " + ", ".join(list(terms)[:3])
+        for c, terms in terminos.items()
+    }
 
 
 def resumen_clusters(
-    df: "pd.DataFrame",
+    df: pd.DataFrame,
     columna_cluster: str,
     columna_texto: str,
     etiquetas: Mapping[int, str] | None = None,
-) -> "pd.DataFrame":
-    """Construye una tabla resumen por clúster.
+) -> pd.DataFrame:
+    """Tabla por grupo: nombre, tamaño, proporción, rating medio, % que recomienda y un ejemplo."""
+    filas = []
+    total = len(df)
+    for c, grupo in df.groupby(columna_cluster):
+        fila = {
+            "cluster": int(c),
+            "nombre": (etiquetas or {}).get(int(c), f"Grupo {c}"),
+            "n_resenas": len(grupo),
+            "proporcion": len(grupo) / total,
+            "ejemplo": str(grupo[columna_texto].iloc[0])[:200],
+        }
+        if "Rating" in grupo:
+            fila["rating_medio"] = grupo["Rating"].mean()
+        if "Recommended IND" in grupo:
+            fila["tasa_recomienda"] = grupo["Recommended IND"].mean()
+        filas.append(fila)
+    return pd.DataFrame(filas).sort_values("n_resenas", ascending=False).reset_index(drop=True)
 
-    TODO: incluir tamaño, proporción, rating medio, tasa de recomendación y
-    un ejemplo de reseña por clúster.
-    """
-    raise NotImplementedError("Pendiente: implementar el resumen por clúster.")
 
-
-def exportar_etiquetas(
-    resumen: "pd.DataFrame",
-    ruta: str,
-) -> None:
-    """Guarda el resumen de clústeres en CSV para revisión.
-
-    TODO: crear la carpeta destino y usar codificación UTF-8.
-    """
-    raise NotImplementedError("Pendiente: implementar la exportación de etiquetas.")
+def exportar_etiquetas(resumen: pd.DataFrame, ruta: str | Path) -> None:
+    """Guarda el resumen de grupos en CSV (UTF-8)."""
+    ruta = Path(ruta)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    resumen.to_csv(ruta, index=False, encoding="utf-8")
