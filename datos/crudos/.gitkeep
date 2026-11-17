@@ -1,2 +1,0 @@
-# Mantiene la carpeta datos/crudos en el control de versiones.
-# Los CSV/XLSX crudos están ignorados; archive.zip puede versionarse.
