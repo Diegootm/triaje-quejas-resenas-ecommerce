@@ -16,7 +16,6 @@ Uso (desde la raíz del repositorio, con el entorno virtual activado):
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -31,6 +30,7 @@ RAIZ = Path(__file__).resolve().parent
 sys.path.insert(0, str(RAIZ))
 
 from codigo import agrupamiento, caracteristicas, etiquetado, evaluacion, preprocesamiento  # noqa: E402
+from codigo.triaje import AgenteTriaje  # noqa: E402
 
 RUTA_CSV = RAIZ / "datos" / "crudos" / "Womens Clothing E-Commerce Reviews.csv"
 RUTA_ZIP = RAIZ / "datos" / "crudos" / "archive.zip"
@@ -44,9 +44,15 @@ def paso(msg: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Entrena el agente de triaje de quejas.")
-    parser.add_argument("--k", type=int, default=agrupamiento.K_ELEGIDO, help="número de grupos (por defecto 6)")
-    parser.add_argument("--barrido", action="store_true", help="imprime inercia y silueta para K = 2..12")
+    parser.add_argument("--k", type=int, default=agrupamiento.K_ELEGIDO,
+                        help=f"número de grupos, entre {agrupamiento.K_MIN} y {agrupamiento.K_MAX} (por defecto 6)")
+    parser.add_argument("--barrido", action="store_true",
+                        help="imprime inercia, silueta y la recomendación heurística para K = 2..12")
     args = parser.parse_args()
+    try:
+        agrupamiento.validar_k(args.k)
+    except ValueError as error:
+        parser.error(str(error))
     t0 = time.time()
 
     preprocesamiento.descargar_recursos_nltk()
@@ -78,7 +84,14 @@ def main() -> None:
 
     if args.barrido:
         paso("3b. Selección de K (codo + silueta)")
-        print(agrupamiento.seleccionar_k(X_svd).to_string(index=False))
+        tabla = agrupamiento.seleccionar_k(X_svd)
+        print(tabla.to_string(index=False))
+        rec = agrupamiento.recomendar_k(tabla)
+        if rec.k is None:
+            print("Recomendación heurística: ningún K cumple los filtros.")
+        else:
+            print(f"Recomendación heurística (no es garantía de calidad): K = {rec.k} "
+                  f"(mejor silueta entre candidatos: K = {rec.k_mejor_silueta}, {rec.silueta_mejor:.4f})")
 
     paso(f"4. K-means con K = {args.k}")
     kmeans = agrupamiento.entrenar_kmeans(X_svd, k=args.k)
@@ -91,18 +104,37 @@ def main() -> None:
     print(f"Silueta: {evaluacion.coeficiente_silueta(X_svd, etiquetas):.4f}")
     ari = evaluacion.evaluar_estabilidad(X_svd, args.k)["ari"]
     print(f"ARI medio (45 pares, n_init=1): {ari.mean():.4f} ± {ari.std(ddof=0):.4f}")
-    terminos = etiquetado.terminos_top_por_cluster(X, etiquetas, vectorizador, 8)
-    manuales = etiquetado.NOMBRES_CLUSTER if args.k == agrupamiento.K_ELEGIDO else {}
-    nombres = etiquetado.etiquetar_clusters(terminos, manuales)
-    for c in sorted(terminos):
-        print(f"  Grupo {c}: {nombres[c]}\n           términos: {', '.join(terminos[c])}")
 
     paso("6. Guardado de modelos")
     caracteristicas.guardar_vectorizador(vectorizador, DIR_MODELOS / "vectorizador.joblib")
     agrupamiento.guardar_modelo(svd, DIR_MODELOS / "svd_lsa.joblib")
     agrupamiento.guardar_modelo(kmeans, DIR_MODELOS / "modelo_kmeans.joblib")
-    (DIR_MODELOS / "nombres_grupos.json").write_text(json.dumps(nombres, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Modelos guardados en {DIR_MODELOS}")
+
+    paso("7. Nombres de los grupos y huella de la partición")
+    # Se carga el agente igual que la interfaz para que la huella se calcule
+    # sobre la misma partición que verá AgenteTriaje (corpus leído del CSV).
+    # Si ya existía un nombres_grupos.json de ESTA misma partición (misma huella),
+    # sus nombres se conservan; si no, se usan los manuales (solo con la huella de
+    # referencia) o los derivados de los términos.
+    agente = AgenteTriaje(DIR_MODELOS)
+    nombres = agente.nombres
+    for c in sorted(nombres):
+        print(f"  Grupo {c}: {nombres[c]}\n           términos: {', '.join(agente.terminos.get(c, [])[:8])}")
+    print(f"Huella de la partición: {agente.huella}")
+    if agente.origen_nombres == "archivo":
+        print(f"Se conservan los nombres del {etiquetado.ARCHIVO_NOMBRES} anterior (misma partición).")
+    elif agente.origen_nombres == "referencia":
+        print("Coincide con HUELLA_REFERENCIA: se guardan los nombres manuales del informe.")
+    elif etiquetado.HUELLA_REFERENCIA is None:
+        print("HUELLA_REFERENCIA no está registrada en codigo/etiquetado.py: se guardan nombres derivados de los términos.")
+    else:
+        print("No coincide con HUELLA_REFERENCIA: se guardan nombres derivados de los términos.")
+    if agente.aviso_nombres:
+        print("Aviso:", agente.aviso_nombres)
+    etiquetado.guardar_nombres(nombres, agente.etiquetas_corpus, DIR_MODELOS)
+    print(f"Nombres guardados en {DIR_MODELOS / etiquetado.ARCHIVO_NOMBRES} "
+          f"(huella en {etiquetado.ARCHIVO_HUELLA_NOMBRES})")
     print(f"\nListo en {time.time() - t0:.0f} s. Ahora puedes ejecutar: streamlit run app/app_streamlit.py")
 
 

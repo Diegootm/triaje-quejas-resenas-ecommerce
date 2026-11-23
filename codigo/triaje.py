@@ -9,21 +9,31 @@ Flujo (Ejemplo 10 / Tabla 44 del informe):
     1. preprocesar()                -> mismo pipeline del cuaderno 02
     2. vectorizador.transform()     -> TF-IDF con el IDF aprendido (no se recalcula)
     3. svd.transform()              -> proyección a 100 componentes (Fórmula 25)
-    4. kmeans.transform()           -> distancia a los 6 centroides; gana la menor (Fórmula 11)
+    4. kmeans.transform()           -> distancia a los K centroides; gana la menor (Fórmula 11)
     5. similitud del coseno         -> reseñas del corpus más parecidas (Fórmula 7)
+
+El vectorizador y el SVD son fijos. El modelo K-means se puede reemplazar por
+otro con distinto K (:meth:`AgenteTriaje.con_kmeans`) sin recalcular TF-IDF ni SVD.
 """
 
 from __future__ import annotations
 
-import json
+import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.cluster import KMeans
 
-from codigo.etiquetado import NOMBRES_CLUSTER, etiquetar_clusters, terminos_top_por_cluster
+from codigo.etiquetado import (
+    cargar_nombres,
+    elegir_nombres_manuales,
+    etiquetar_clusters,
+    huella_particion,
+    terminos_top_por_cluster,
+)
 from codigo.preprocesamiento import preprocesar
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -65,25 +75,70 @@ class AgenteTriaje:
             )
         self.vectorizador = joblib.load(dir_modelos / "vectorizador.joblib")
         self.svd = joblib.load(dir_modelos / "svd_lsa.joblib")
-        self.kmeans = joblib.load(dir_modelos / "modelo_kmeans.joblib")
+        kmeans = joblib.load(dir_modelos / "modelo_kmeans.joblib")
 
-        # Corpus de quejas ya preprocesadas: sirve para mostrar reseñas parecidas.
+        # Corpus de quejas ya preprocesadas: sirve para mostrar reseñas parecidas
+        # y para reentrenar K-means con otro K sobre la misma representación.
         corpus = pd.read_csv(ruta_corpus)
         self.corpus = corpus.dropna(subset=["texto_limpio"]).reset_index(drop=True)
         self.X_corpus = self.vectorizador.transform(self.corpus["texto_limpio"])
-        self.etiquetas_corpus = self.kmeans.predict(self.svd.transform(self.X_corpus))
-        self.terminos = terminos_top_por_cluster(self.X_corpus, self.etiquetas_corpus, self.vectorizador, 10)
+        self.X_svd_corpus = self.svd.transform(self.X_corpus)
 
-        ruta_nombres = dir_modelos / "nombres_grupos.json"
-        if ruta_nombres.exists():
-            manuales = {int(k): v for k, v in json.loads(ruta_nombres.read_text(encoding="utf-8")).items()}
-        else:
-            manuales = NOMBRES_CLUSTER if self.kmeans.n_clusters == len(NOMBRES_CLUSTER) else {}
+        # Nombres guardados por entrenar_agente.py; solo se aplican a la partición
+        # cuya huella coincide (ver etiquetado.elegir_nombres_manuales).
+        try:
+            self.nombres_persistidos = cargar_nombres(dir_modelos)
+            aviso_lectura = None
+        except ValueError as error:
+            self.nombres_persistidos = None
+            aviso_lectura = f"Se ignoraron los nombres guardados: {error}"
+
+        self._usar_kmeans(kmeans)
+        self.aviso_nombres = aviso_lectura or self.aviso_nombres
+        self.kmeans_referencia = kmeans
+        self.etiquetas_referencia = self.etiquetas_corpus
+
+    def _usar_kmeans(self, kmeans: KMeans) -> None:
+        """Asigna el corpus a los grupos de ``kmeans`` y recalcula términos y nombres.
+
+        Los nombres persistidos o manuales solo se aplican si la huella de la
+        partición coincide; si no, se usan etiquetas derivadas de los términos.
+        """
+        if kmeans.n_features_in_ != self.X_svd_corpus.shape[1]:
+            raise ValueError(
+                f"El modelo K-means espera {kmeans.n_features_in_} componentes y el SVD produce "
+                f"{self.X_svd_corpus.shape[1]}."
+            )
+        self.kmeans = kmeans
+        self.etiquetas_corpus = kmeans.predict(self.X_svd_corpus)
+        self.terminos = terminos_top_por_cluster(self.X_corpus, self.etiquetas_corpus, self.vectorizador, 10)
+        self.huella = huella_particion(self.etiquetas_corpus)
+        manuales, self.origen_nombres, self.aviso_nombres = elegir_nombres_manuales(
+            self.etiquetas_corpus, self.nombres_persistidos)
+        self.nombres_manuales = self.origen_nombres != "terminos"
         self.nombres = etiquetar_clusters(self.terminos, manuales)
+        # Un grupo sin reseñas del corpus no tiene términos; se le da un nombre genérico.
+        for g in range(self.n_grupos):
+            self.nombres.setdefault(g, f"Grupo {g}")
+            self.terminos.setdefault(g, [])
+
+    def con_kmeans(self, kmeans: KMeans) -> "AgenteTriaje":
+        """Devuelve un agente que usa ``kmeans`` y comparte vectorizador, SVD y corpus.
+
+        No modifica el agente original ni recalcula TF-IDF ni SVD.
+        """
+        nuevo = copy.copy(self)
+        nuevo._usar_kmeans(kmeans)
+        nuevo.aviso_nombres = None   # el aviso sobre nombres_grupos.json solo concierne al modelo guardado
+        return nuevo
 
     @property
     def n_grupos(self) -> int:
         return int(self.kmeans.n_clusters)
+
+    @property
+    def k_referencia(self) -> int:
+        return int(self.kmeans_referencia.n_clusters)
 
     def distribucion(self) -> pd.DataFrame:
         """Cantidad de quejas del corpus en cada grupo (para el gráfico de la interfaz)."""
