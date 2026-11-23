@@ -75,11 +75,39 @@ pip install -r requirements.txt
 python entrenar_agente.py                 # 1. entrena (≈40 s) y guarda los modelos en modelos/
 streamlit run app/app_streamlit.py        # 2. abre la interfaz en http://localhost:8501
 python triaje_cli.py "It runs very small, I had to return it for a larger size."   # alternativa por terminal
-python -m pytest -q                       # pruebas (7 pruebas)
+python -m pytest -q                       # pruebas (pruebas/test_proyecto.py y pruebas/test_seleccion_k.py)
 ```
 
 `python entrenar_agente.py --barrido` imprime además la tabla de inercia y
-silueta para K = 2..12 (método del codo).
+silueta para K = 2..12 (método del codo) y una recomendación heurística de K.
+`--k` acepta valores entre 2 y 12.
+
+### Número de grupos (K) en la interfaz
+
+En la barra lateral de Streamlit se elige K entre 2 y 12. El valor inicial es
+el K del modelo guardado en `modelos/` (6 en la configuración del informe).
+
+- Al cambiar K solo se entrena K-means sobre el TF-IDF + SVD ya calculado del
+  corpus; TF-IDF y SVD no se reentrenan. Cada modelo queda en memoria mientras
+  la app esté abierta y no se guarda en disco.
+- Las quejas nuevas (individuales o por lote) se asignan con el K elegido y
+  nunca reentrenan el modelo.
+- La pestaña **Selección de K** calcula inercia y silueta para K = 2..12 (con
+  barra de progreso), marca el K elegido, muestra una recomendación
+  **heurística** y compara la partición con la del modelo guardado (ARI y
+  tabla de contingencia).
+- Los nombres de los grupos se atan a una partición concreta mediante su
+  **huella** (SHA-256 de la asignación de cada reseña). Se usan, en este orden:
+  1. `modelos/nombres_grupos.json`, si su huella (`modelos/nombres_grupos_huella.json`)
+     coincide con la partición del modelo cargado (se pueden editar los nombres a mano);
+  2. los nombres manuales del informe, si la partición tiene la huella registrada en
+     `HUELLA_REFERENCIA` (`codigo/etiquetado.py`);
+  3. en otro caso, los 3 términos de mayor peso TF-IDF de cada grupo.
+- `HUELLA_REFERENCIA` está vacía hasta que el equipo la registre: entrenar con
+  K = 6, verificar que el modelo reproduce el informe y copiar la huella que
+  imprime `entrenar_agente.py`.
+- Un `nombres_grupos.json` antiguo, sin archivo de huella, se ignora: vuelve a
+  entrenar para generarlo.
 
 ### Cuadernos de Jupyter (alternativa a `entrenar_agente.py`)
 
