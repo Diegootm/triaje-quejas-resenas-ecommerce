@@ -55,7 +55,11 @@ def main() -> None:
         parser.error(str(error))
     t0 = time.time()
 
-    preprocesamiento.descargar_recursos_nltk()
+    try:
+        preprocesamiento.verificar_recursos_nltk()
+    except preprocesamiento.RecursoNltkFaltante as error:
+        parser.exit(1, f"error: {error}
+")
 
     paso("1. Carga del dataset y criterio de queja (cuaderno 01)")
     origen = RUTA_CSV if RUTA_CSV.exists() else RUTA_ZIP

@@ -31,7 +31,17 @@ COLUMNAS_TEXTO: tuple[str, ...] = ("Title", "Review Text")
 # Umbral estándar de VADER para considerar negativo un texto (Hutto y Gilbert, 2014).
 UMBRAL_VADER = -0.05
 
-RECURSOS_NLTK = ("stopwords", "wordnet", "omw-1.4", "punkt", "punkt_tab", "vader_lexicon")
+# Recurso de NLTK -> ruta que ``nltk.data.find`` debe encontrar (fuente única).
+RECURSOS_NLTK: dict[str, str] = {
+    "stopwords": "corpora/stopwords",
+    "wordnet": "corpora/wordnet",
+    "omw-1.4": "corpora/omw-1.4",
+    "punkt": "tokenizers/punkt",
+    "punkt_tab": "tokenizers/punkt_tab",
+    "vader_lexicon": "sentiment/vader_lexicon",
+}
+
+COMANDO_PREPARAR_ENTORNO = "python preparar_entorno.py"
 
 # Contracciones frecuentes en inglés (prioriza las que contienen negación).
 CONTRACCIONES = {
@@ -60,12 +70,41 @@ _patron_limpieza = re.compile(r"[^a-z\s]")
 
 _stopwords_en: frozenset[str] | None = None
 _lematizador = None
+_recursos_verificados = False  # evita consultar el disco en cada texto
 
 
-def descargar_recursos_nltk() -> None:
-    """Descarga (solo la primera vez) los recursos de NLTK que usa el proyecto."""
-    for recurso in RECURSOS_NLTK:
-        nltk.download(recurso, quiet=True)
+class RecursoNltkFaltante(LookupError):
+    """Faltan recursos de NLTK; el mensaje indica cómo instalarlos."""
+
+
+def recursos_nltk_faltantes() -> list[str]:
+    """Nombres de los recursos de NLTK que no están instalados (no descarga nada)."""
+    return [nombre for nombre, ruta in RECURSOS_NLTK.items() if not _recurso_instalado(ruta)]
+
+
+def _recurso_instalado(ruta: str) -> bool:
+    """Un recurso puede estar descomprimido o como .zip (NLTK carga ambos)."""
+    for candidata in (ruta, ruta + ".zip"):
+        try:
+            nltk.data.find(candidata)
+            return True
+        except LookupError:
+            continue
+    return False
+
+
+def verificar_recursos_nltk() -> None:
+    """Falla con un mensaje claro si falta algún recurso de NLTK (sin descargas)."""
+    global _recursos_verificados
+    if _recursos_verificados:
+        return
+    faltantes = recursos_nltk_faltantes()
+    if faltantes:
+        raise RecursoNltkFaltante(
+            f"Faltan recursos de NLTK: {', '.join(faltantes)}. "
+            f"Instálalos una vez con: {COMANDO_PREPARAR_ENTORNO}"
+        )
+    _recursos_verificados = True
 
 
 def _stopwords() -> frozenset[str]:
@@ -73,12 +112,8 @@ def _stopwords() -> frozenset[str]:
     if _stopwords_en is None:
         from nltk.corpus import stopwords
 
-        try:
-            lista = stopwords.words("english")
-        except LookupError:
-            descargar_recursos_nltk()
-            lista = stopwords.words("english")
-        _stopwords_en = frozenset(lista) - NEGACIONES
+        verificar_recursos_nltk()
+        _stopwords_en = frozenset(stopwords.words("english")) - NEGACIONES
     return _stopwords_en
 
 
@@ -119,11 +154,8 @@ def marcar_quejas(df: pd.DataFrame, umbral_vader: float = UMBRAL_VADER) -> pd.Da
     """
     from nltk.sentiment import SentimentIntensityAnalyzer
 
-    try:
-        sia = SentimentIntensityAnalyzer()
-    except LookupError:
-        descargar_recursos_nltk()
-        sia = SentimentIntensityAnalyzer()
+    verificar_recursos_nltk()
+    sia = SentimentIntensityAnalyzer()
 
     df = df.copy()
     df["vader_compound"] = df["Review Text"].astype(str).apply(lambda t: sia.polarity_scores(t)["compound"])
@@ -161,11 +193,8 @@ def tokenizar(texto: str) -> list[str]:
     """Separa el texto limpio en tokens con ``word_tokenize`` de NLTK."""
     from nltk.tokenize import word_tokenize
 
-    try:
-        return word_tokenize(texto)
-    except LookupError:
-        descargar_recursos_nltk()
-        return word_tokenize(texto)
+    verificar_recursos_nltk()
+    return word_tokenize(texto)
 
 
 def eliminar_stopwords(tokens: Iterable[str], stopwords: Iterable[str] | None = None) -> list[str]:
@@ -176,12 +205,9 @@ def eliminar_stopwords(tokens: Iterable[str], stopwords: Iterable[str] | None = 
 
 def lematizar(tokens: Iterable[str]) -> list[str]:
     """Lematiza cada token con ``WordNetLemmatizer`` (categoría por defecto: sustantivo)."""
+    verificar_recursos_nltk()
     lem = _lemmatizer()
-    try:
-        return [lem.lemmatize(t) for t in tokens]
-    except LookupError:
-        descargar_recursos_nltk()
-        return [lem.lemmatize(t) for t in tokens]
+    return [lem.lemmatize(t) for t in tokens]
 
 
 def preprocesar(texto: str) -> str:
