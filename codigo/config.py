@@ -64,3 +64,9 @@ TOLERANCIA_SILUETA = 0.15
 MARGEN_DUDOSO = 0.02
 N_TERMINOS_TOP = 10           # términos que describen cada grupo
 N_SIMILARES = 3               # reseñas parecidas que se muestran con cada sugerencia
+
+# --------------------------------------------------------------------------
+# Animación de Lloyd (codigo/lloyd.py)
+# --------------------------------------------------------------------------
+MAX_ITER_LLOYD = 300          # como el valor por defecto de scikit-learn
+TOL_LLOYD = 1e-4              # desplazamiento de centroides, relativo a la varianza media (como scikit-learn)
