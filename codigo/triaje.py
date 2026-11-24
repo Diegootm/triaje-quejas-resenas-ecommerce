@@ -54,7 +54,8 @@ class ResultadoTriaje:
     texto_limpio: str
     valido: bool                      # False si ninguna palabra está en el vocabulario
     grupo: int | None = None
-    nombre: str | None = None
+    nombre: str | None = None          # nombre automático (términos TF-IDF del grupo)
+    nombre_informe: str | None = None  # nombre del informe / guardado; solo si la huella coincide
     distancias: list[float] = field(default_factory=list)
     segundo_grupo: int | None = None
     margen: float | None = None
@@ -116,10 +117,12 @@ class AgenteTriaje:
         self.etiquetas_corpus = kmeans.predict(self.X_svd_corpus)
         self.terminos = terminos_top_por_cluster(self.X_corpus, self.etiquetas_corpus, self.vectorizador, N_TERMINOS_TOP)
         self.huella = huella_particion(self.etiquetas_corpus)
-        manuales, self.origen_nombres, self.aviso_nombres = elegir_nombres_manuales(
+        # Nombre principal: automático, siempre disponible. Nombre secundario: el del
+        # informe o el guardado, solo si la huella de la partición coincide.
+        self.nombres_secundarios, self.origen_nombres, self.aviso_nombres = elegir_nombres_manuales(
             self.etiquetas_corpus, self.nombres_persistidos)
         self.nombres_manuales = self.origen_nombres != "terminos"
-        self.nombres = etiquetar_clusters(self.terminos, manuales)
+        self.nombres = etiquetar_clusters(self.terminos)
         # Un grupo sin reseñas del corpus no tiene términos; se le da un nombre genérico.
         for g in range(self.n_grupos):
             self.nombres.setdefault(g, f"Grupo {g}")
@@ -149,6 +152,7 @@ class AgenteTriaje:
         return pd.DataFrame({
             "grupo": conteo.index,
             "nombre": [self.nombres[int(g)] for g in conteo.index],
+            "nombre_informe": [self.nombres_secundarios.get(int(g), "") for g in conteo.index],
             "quejas": conteo.values,
             "porcentaje": (conteo.values / conteo.values.sum() * 100).round(1),
         })
@@ -177,7 +181,7 @@ class AgenteTriaje:
             for i in sims.argsort()[::-1][:n_similares]
         ]
         return ResultadoTriaje(
-            queja=queja, texto_limpio=limpio, valido=True, grupo=g, nombre=self.nombres[g],
+            queja=queja, texto_limpio=limpio, valido=True, grupo=g, nombre=self.nombres[g], nombre_informe=self.nombres_secundarios.get(g),
             distancias=[float(d) for d in dist], segundo_grupo=g2, margen=margen,
             poco_seguro=margen < MARGEN_DUDOSO, terminos=self.terminos[g], similares=similares,
             aviso=(f"Sugerencia poco segura: el grupo {g2} ({self.nombres[g2]}) está casi igual de cerca."

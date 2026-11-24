@@ -115,29 +115,32 @@ def main() -> None:
     print(f"Modelos guardados en {config.DIR_MODELOS}")
 
     paso("7. Nombres de los grupos y huella de la partición")
-    # Se carga el agente igual que la interfaz para que la huella se calcule
-    # sobre la misma partición que verá AgenteTriaje (corpus leído del CSV).
-    # Si ya existía un nombres_grupos.json de ESTA misma partición (misma huella),
-    # sus nombres se conservan; si no, se usan los manuales (solo con la huella de
-    # referencia) o los derivados de los términos.
+    # Se carga el agente igual que la interfaz para que la huella se calcule sobre la
+    # misma partición que verá AgenteTriaje. Nombre principal: automático (términos
+    # TF-IDF). Nombre secundario: el del informe (solo con la huella de referencia) o el
+    # de un nombres_grupos.json de ESTA misma partición, que se conserva si se editó a mano.
     agente = AgenteTriaje(config.DIR_MODELOS)
-    nombres = agente.nombres
-    for c in sorted(nombres):
-        print(f"  Grupo {c}: {nombres[c]}\n           términos: {', '.join(agente.terminos.get(c, [])[:8])}")
+    for c in sorted(agente.nombres):
+        print(f"  {agente.nombres[c]}")
+        if c in agente.nombres_secundarios:
+            print(f"           nombre secundario: {agente.nombres_secundarios[c]}")
+        print(f"           términos: {', '.join(agente.terminos.get(c, [])[:8])}")
     print(f"Huella de la partición: {agente.huella}")
     if agente.origen_nombres == "archivo":
-        print(f"Se conservan los nombres del {config.ARCHIVO_NOMBRES} anterior (misma partición).")
+        print(f"Nombres secundarios: se conservan los del {config.ARCHIVO_NOMBRES} anterior (misma partición).")
     elif agente.origen_nombres == "referencia":
-        print("Coincide con HUELLA_REFERENCIA: se guardan los nombres manuales del informe.")
-    elif etiquetado.HUELLA_REFERENCIA is None:
-        print("HUELLA_REFERENCIA no está registrada en codigo/etiquetado.py: se guardan nombres derivados de los términos.")
+        print("Nombres secundarios: los del informe (la huella coincide con HUELLA_REFERENCIA).")
     else:
-        print("No coincide con HUELLA_REFERENCIA: se guardan nombres derivados de los términos.")
+        print("Sin nombres secundarios: la partición no coincide con HUELLA_REFERENCIA.")
+        print("Para registrar esta partición como referencia, comprueba que los términos de cada grupo "
+              "concuerdan con NOMBRES_CLUSTER y copia la huella en codigo/etiquetado.py:")
+        print(f'    HUELLA_REFERENCIA = "{agente.huella}"')
     if agente.aviso_nombres:
         print("Aviso:", agente.aviso_nombres)
-    etiquetado.guardar_nombres(nombres, agente.etiquetas_corpus, config.DIR_MODELOS)
-    print(f"Nombres guardados en {config.DIR_MODELOS / config.ARCHIVO_NOMBRES} "
-          f"(huella en {config.ARCHIVO_HUELLA_NOMBRES})")
+    if agente.nombres_secundarios:
+        etiquetado.guardar_nombres(agente.nombres_secundarios, agente.etiquetas_corpus, config.DIR_MODELOS)
+        print(f"Nombres secundarios guardados en {config.DIR_MODELOS / config.ARCHIVO_NOMBRES} "
+              f"(huella en {config.ARCHIVO_HUELLA_NOMBRES})")
     print(f"\nListo en {time.time() - t0:.0f} s. Ahora puedes ejecutar: streamlit run app/app_streamlit.py")
 
 

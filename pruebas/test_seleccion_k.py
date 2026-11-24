@@ -249,14 +249,14 @@ class TestAgenteConOtroK:
         persistidos = etiquetado.cargar_nombres(RAIZ / "modelos")
         assert persistidos.huella == base.huella
         assert base.origen_nombres in ("archivo", "referencia")
-        assert all(base.nombres[g] == n for g, n in persistidos.nombres.items())
+        assert all(base.nombres_secundarios[g] == n for g, n in persistidos.nombres.items())
 
     def test_nombres_persistidos_solo_para_su_particion(self, base):
         con_nombres = copy.copy(base)
         con_nombres.nombres_persistidos = etiquetado.NombresPersistidos(
             {g: f"Nombre propio {g}" for g in range(base.n_grupos)}, base.huella)
         propio = con_nombres.con_kmeans(base.kmeans_referencia)
-        assert propio.origen_nombres == "archivo" and propio.nombres[0] == "Nombre propio 0"
+        assert propio.origen_nombres == "archivo" and propio.nombres_secundarios[0] == "Nombre propio 0"
         otro = con_nombres.con_kmeans(agrupamiento.entrenar_kmeans(base.X_svd_corpus, k=base.k_referencia, semilla=7))
         if otro.huella == base.huella:
             pytest.skip("La semilla 7 reprodujo exactamente la misma partición")
@@ -269,7 +269,7 @@ class TestAgenteConOtroK:
             pytest.skip("El modelo guardado no es el de referencia")
         assert base.nombres_manuales
         if base.origen_nombres == "referencia":
-            assert base.nombres[4] == etiquetado.NOMBRES_CLUSTER[4]
+            assert base.nombres_secundarios[4] == etiquetado.NOMBRES_CLUSTER[4]
 
 
 def test_svd_reducido_coincide_con_transform(datos):

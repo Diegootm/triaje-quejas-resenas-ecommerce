@@ -119,9 +119,9 @@ def _barra_lateral(agente: AgenteTriaje) -> None:
     with st.sidebar:
         origen = "modelo guardado en modelos/" if agente.n_grupos == agente.k_referencia else "entrenado en memoria"
         nombres = {
-            "archivo": "guardados en modelos/nombres_grupos.json (huella verificada)",
-            "referencia": "manuales del informe (huella de referencia verificada)",
-        }.get(agente.origen_nombres, "derivados de los términos")
+            "archivo": "automáticos + guardados en modelos/nombres_grupos.json (huella verificada)",
+            "referencia": "automáticos + nombres del informe (huella de referencia verificada)",
+        }.get(agente.origen_nombres, "automáticos (términos TF-IDF)")
         st.markdown(
             f"- K-means: **K = {agente.n_grupos}** ({origen})\n"
             f"- Nombres de grupos: {nombres}\n"
@@ -155,6 +155,8 @@ def _mostrar_resultado(agente: AgenteTriaje, texto: str) -> None:
     col1, col2 = st.columns([3, 2])
     with col1:
         st.success(f"**Grupo sugerido (K = {agente.n_grupos}): {r.grupo} — {r.nombre}**")
+        if r.nombre_informe:
+            st.caption(f"Nombre del informe: {r.nombre_informe}")
         if r.aviso:
             st.warning(r.aviso)
         st.markdown("**Términos representativos del grupo:** " + ", ".join(f"`{t}`" for t in r.terminos[:8]))
@@ -232,11 +234,11 @@ def _pestana_grupos(agente: AgenteTriaje) -> None:
     dist["términos principales"] = [", ".join(agente.terminos[int(g)][:8]) for g in dist["grupo"]]
     st.dataframe(dist, hide_index=True, use_container_width=True)
     if agente.origen_nombres == "referencia":
-        st.caption("Los nombres de los grupos son una interpretación humana posterior del modelo de referencia; "
-                   "no se usaron para entrenar.")
+        st.caption("Nombre principal: automático (términos TF-IDF). \"Nombre del informe\": interpretación humana "
+                   "posterior del modelo de referencia; ninguno se usó para entrenar.")
     elif agente.origen_nombres == "archivo":
-        st.caption("Los nombres provienen de modelos/nombres_grupos.json y pertenecen a esta misma partición "
-                   "(huella verificada); no se usaron para entrenar.")
+        st.caption("Nombre principal: automático (términos TF-IDF). \"Nombre del informe\" viene de "
+                   "modelos/nombres_grupos.json y pertenece a esta misma partición (huella verificada).")
     else:
         st.caption("Los nombres se generan con los 3 términos de mayor peso TF-IDF de cada grupo. "
                    "Son orientativos: conviene revisarlos leyendo reseñas de cada grupo.")

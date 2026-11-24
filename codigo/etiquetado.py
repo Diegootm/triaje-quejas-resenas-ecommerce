@@ -34,15 +34,14 @@ NOMBRES_CLUSTER: dict[int, str] = {
 
 # Huella (ver huella_particion) de la partición del modelo de referencia sobre
 # datos/procesados/resenas_limpias.csv. Los nombres de NOMBRES_CLUSTER solo se
-# aplican a una partición con esta huella exacta.
+# aplican (como nombre secundario) a una partición con esta huella exacta.
 #
-# Vale None hasta que el equipo la registre: no hay en el repositorio ninguna
-# copia de la partición de referencia con la que calcularla. Para registrarla,
-# entrenar con K = 6, comprobar que el modelo reproduce el informe (pruebas de
-# pruebas/test_proyecto.py y términos de cada grupo) y copiar aquí la huella
-# que imprime entrenar_agente.py. Mientras sea None, NOMBRES_CLUSTER no se aplica
-# a ningún modelo.
-HUELLA_REFERENCIA: str | None = None
+# Registrada tras comprobar que el modelo K = 6 entrenado por el agente reproduce el
+# informe: tamaños de grupo, distancias de la Tabla 44, inercia, silueta y los
+# términos principales de cada grupo (pruebas/test_nombres.py). Para registrar otra,
+# entrenar, comprobar esas mismas cifras y copiar la huella que imprime
+# entrenar_agente.py. Si vale None, NOMBRES_CLUSTER no se aplica a ningún modelo.
+HUELLA_REFERENCIA: str | None = "2921bd90a2bf24facec9d4b51dce5ee170c702798f7bc50eb25ceea440722ca7"
 
 
 def huella_particion(etiquetas: Sequence[int]) -> str:
