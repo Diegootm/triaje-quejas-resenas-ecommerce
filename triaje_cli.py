@@ -11,7 +11,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from codigo import agrupamiento, config  # noqa: E402
+from codigo.decision_k import ORIGEN_MANUAL, cargar_decision  # noqa: E402
+from codigo.preprocesamiento import RecursoNltkFaltante, verificar_recursos_nltk  # noqa: E402
 from codigo.triaje import AgenteTriaje  # noqa: E402
+
+
+def cargar_agente_con_k_del_agente() -> AgenteTriaje:
+    """Carga el agente y usa el K que eligió al entrenar (modelos/seleccion_k.json)."""
+    decision = cargar_decision(config.DIR_MODELOS)
+    base = AgenteTriaje()
+    agente = base
+    if decision.k_elegido != base.k_referencia:
+        agente = base.con_kmeans(agrupamiento.entrenar_kmeans(base.X_svd_corpus, k=decision.k_elegido))
+    origen = "impuesto con --k" if decision.origen == ORIGEN_MANUAL else "elegido por el agente"
+    print(f"Agente de triaje con K = {agente.n_grupos} ({origen}).")
+    return agente
 
 
 def mostrar(agente: AgenteTriaje, queja: str) -> None:
@@ -23,6 +38,8 @@ def mostrar(agente: AgenteTriaje, queja: str) -> None:
         return
     print("Distancias a los grupos:", " / ".join(f"{i}:{d:.4f}" for i, d in enumerate(r.distancias)))
     print(f"GRUPO SUGERIDO: {r.grupo} — {r.nombre}")
+    if r.nombre_informe:
+        print(f"Nombre del informe: {r.nombre_informe}")
     print("Términos del grupo:", ", ".join(r.terminos[:8]))
     if r.aviso:
         print("AVISO:", r.aviso)
@@ -34,7 +51,11 @@ def mostrar(agente: AgenteTriaje, queja: str) -> None:
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    agente = AgenteTriaje()
+    try:
+        verificar_recursos_nltk()
+        agente = cargar_agente_con_k_del_agente()
+    except (RecursoNltkFaltante, FileNotFoundError) as error:
+        sys.exit(f"error: {error}")
     if len(sys.argv) > 1:
         for queja in sys.argv[1:]:
             mostrar(agente, queja)
