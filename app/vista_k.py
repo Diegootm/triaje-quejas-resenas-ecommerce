@@ -9,6 +9,7 @@ from matplotlib.figure import Figure
 from app import estado
 from codigo import agrupamiento, config, evaluacion
 from codigo.decision_k import DecisionK, explicar_decision
+from codigo.presentacion import numero_grupo
 from codigo.triaje import AgenteTriaje
 
 
@@ -112,8 +113,9 @@ def _seccion_comparacion(base: AgenteTriaje, agente: AgenteTriaje) -> None:
         st.caption("Estás viendo el modelo guardado en modelos/.")
         return
     df = pd.DataFrame({
-        f"grupo (K = {agente.n_grupos})": [f"{g:02d}: {agente.nombres[g][:40]}" for g in agente.etiquetas_corpus],
-        f"grupo referencia (K = {base.k_referencia})": [f"{g:02d}: {base.nombres[g][:30]}"
+        f"grupo (K = {agente.n_grupos})": [f"{numero_grupo(g):02d}: {agente.nombres[g][:40]}"
+                                           for g in agente.etiquetas_corpus],
+        f"grupo referencia (K = {base.k_referencia})": [f"{numero_grupo(g):02d}: {base.nombres[g][:30]}"
                                                         for g in base.etiquetas_referencia],
     })
     tabla = evaluacion.comparar_etiquetas_manuales(df, df.columns[1], df.columns[0])

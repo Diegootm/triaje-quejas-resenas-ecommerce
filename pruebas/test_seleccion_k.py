@@ -212,7 +212,7 @@ def test_cargar_nombres_sin_archivo_o_invalido(tmp_path):
 
 def test_etiquetas_automaticas_usan_terminos():
     nombres = etiquetado.etiquetar_clusters({0: ["small", "size", "tight", "short"]}, {})
-    assert nombres == {0: "Grupo 0: small, size, tight"}
+    assert nombres == {0: "Grupo 1: small, size, tight"}
 
 
 # --------------------------------------------------------------------------

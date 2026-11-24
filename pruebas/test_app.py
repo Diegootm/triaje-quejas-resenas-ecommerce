@@ -115,8 +115,23 @@ def test_lote_csv_muestra_el_selector_de_archivo_y_clasifica_con_el_k_activo():
     avances = []
     resultado = clasificar_lote(agente, [QUEJA, "asdf qwerty"], progreso=avances.append)
     assert resultado["K"].tolist() == [agente.n_grupos] * 2
-    assert resultado["grupo"].iloc[0] == 4 and resultado["nombre"].iloc[1] == "Sin vocabulario conocido"
+    assert resultado["grupo"].iloc[0] == 5 and resultado["nombre"].iloc[1] == "Sin vocabulario conocido"
     assert avances == [0.5, 1.0]
+
+
+@NECESITA_MODELOS
+def test_el_csv_descargado_numera_los_grupos_desde_1():
+    import io
+
+    import pandas as pd
+    from app.vista_triaje import clasificar_lote
+    from codigo.triaje import AgenteTriaje
+    agente = AgenteTriaje()
+    resultado = clasificar_lote(agente, [QUEJA, "Poor quality fabric, not worth the price."])
+    csv = pd.read_csv(io.StringIO(resultado.to_csv(index=False)))
+    assert "grupo" in csv.columns
+    assert csv["grupo"].tolist() == [5, 2]               # grupos internos 4 y 1
+    assert csv["grupo"].min() >= 1 and csv["grupo"].max() <= agente.n_grupos
 
 
 @NECESITA_MODELOS
@@ -129,3 +144,16 @@ def test_triaje_cli_usa_el_k_del_agente():
     )
     assert salida.returncode == 0, salida.stderr
     assert f"K = {k} (elegido por el agente)" in salida.stdout and "GRUPO SUGERIDO" in salida.stdout
+
+
+@NECESITA_MODELOS
+def test_triaje_cli_numera_los_grupos_desde_1():
+    import re
+    salida = subprocess.run(
+        [sys.executable, str(RAIZ / "triaje_cli.py"), QUEJA],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180,
+    ).stdout
+    distancias = next(linea for linea in salida.splitlines() if linea.startswith("Distancias a los grupos:"))
+    assert re.findall(r"(\d+):", distancias) == ["1", "2", "3", "4", "5", "6"]
+    assert "GRUPO SUGERIDO: 5 — Grupo 5:" in salida
+    assert re.search(r"grupo [1-6]\]", salida) and "grupo 0]" not in salida

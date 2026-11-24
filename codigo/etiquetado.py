@@ -22,6 +22,7 @@ import scipy.sparse as sp
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from codigo.config import ARCHIVO_HUELLA_NOMBRES, ARCHIVO_NOMBRES, N_TERMINOS_TOP
+from codigo.presentacion import etiqueta_grupo
 
 NOMBRES_CLUSTER: dict[int, str] = {
     0: "Insatisfacción general de ajuste, color y tela",
@@ -178,6 +179,6 @@ def etiquetar_clusters(
     """Nombre manual si existe; si no, una etiqueta provisional con los 3 primeros términos."""
     nombres_manuales = nombres_manuales or {}
     return {
-        c: nombres_manuales.get(c) or f"Grupo {c}: " + ", ".join(list(terms)[:3])
+        c: nombres_manuales.get(c) or f"{etiqueta_grupo(c)}: " + ", ".join(list(terms)[:3])
         for c, terms in terminos.items()
     }

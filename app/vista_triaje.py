@@ -7,7 +7,9 @@ from typing import Callable
 import pandas as pd
 import streamlit as st
 
+from app import graficos
 from codigo.decision_k import DecisionK
+from codigo.presentacion import numero_grupo
 from codigo.triaje import AgenteTriaje
 
 EJEMPLOS = {
@@ -63,23 +65,23 @@ def _mostrar_resultado(agente: AgenteTriaje, texto: str) -> None:
 
     col1, col2 = st.columns([3, 2])
     with col1:
-        st.success(f"**Grupo sugerido (K = {agente.n_grupos}): {r.grupo} — {r.nombre}**")
+        st.success(f"**Grupo sugerido (K = {agente.n_grupos}): {numero_grupo(r.grupo)} — {r.nombre}**")
         if r.nombre_informe:
             st.caption(f"Nombre del informe: {r.nombre_informe}")
         if r.aviso:
             st.warning(r.aviso)
         st.markdown("**Términos representativos del grupo:** " + ", ".join(f"`{t}`" for t in r.terminos[:8]))
     with col2:
-        tabla = pd.DataFrame({
-            "grupo": [f"{i}: {agente.nombres[i][:28]}" for i in range(agente.n_grupos)],
-            "distancia": r.distancias,
-        })
         st.markdown("**Distancia a cada centroide** (menor = más parecido)")
-        st.bar_chart(tabla, x="grupo", y="distancia", horizontal=True, height=max(240, 24 * agente.n_grupos))
+        st.plotly_chart(
+            graficos.figura_distancias([agente.nombres[i] for i in range(agente.n_grupos)], r.distancias, r.grupo),
+            use_container_width=True, config=graficos.CONFIG_ESTATICO)
 
     st.markdown("**Reseñas más parecidas del corpus** (similitud del coseno)")
+    similares = pd.DataFrame(r.similares).rename(columns={"similitud": "coseno", "texto": "reseña"})
+    similares["grupo"] = similares["grupo"].map(numero_grupo)
     st.dataframe(
-        pd.DataFrame(r.similares).rename(columns={"similitud": "coseno", "texto": "reseña"}),
+        similares,
         hide_index=True, use_container_width=True,
         column_config={"coseno": st.column_config.NumberColumn(format="%.3f")},
     )
@@ -113,7 +115,7 @@ def clasificar_lote(
         r = agente.sugerir(texto, n_similares=0)
         filas.append({
             "texto": texto,
-            "grupo": r.grupo if r.valido else None,
+            "grupo": numero_grupo(r.grupo) if r.valido else None,
             "nombre": r.nombre if r.valido else "Sin vocabulario conocido",
             "poco_seguro": r.poco_seguro,
         })
@@ -154,8 +156,10 @@ def pestana_lote(agente: AgenteTriaje) -> None:
 def pestana_grupos(agente: AgenteTriaje) -> None:
     st.subheader(f"Distribución de las quejas del corpus por grupo (K = {agente.n_grupos})")
     dist = agente.distribucion()
-    st.bar_chart(dist.set_index("nombre")["quejas"], horizontal=True)
+    st.plotly_chart(graficos.figura_distribucion(dist["nombre"].tolist(), dist["quejas"].tolist()),
+                    use_container_width=True, config=graficos.CONFIG_ESTATICO)
     dist["términos principales"] = [", ".join(agente.terminos[int(g)][:8]) for g in dist["grupo"]]
+    dist["grupo"] = dist["grupo"].map(numero_grupo)
     st.dataframe(dist, hide_index=True, use_container_width=True)
     if agente.origen_nombres == "referencia":
         st.caption("Nombre principal: automático (términos TF-IDF). \"Nombre del informe\": interpretación humana "

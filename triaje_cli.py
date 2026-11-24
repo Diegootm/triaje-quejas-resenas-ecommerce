@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from codigo import agrupamiento, config  # noqa: E402
 from codigo.decision_k import ORIGEN_MANUAL, cargar_decision  # noqa: E402
+from codigo.presentacion import numero_grupo  # noqa: E402
 from codigo.preprocesamiento import RecursoNltkFaltante, verificar_recursos_nltk  # noqa: E402
 from codigo.triaje import AgenteTriaje  # noqa: E402
 
@@ -36,8 +37,8 @@ def mostrar(agente: AgenteTriaje, queja: str) -> None:
     if not r.valido:
         print("AVISO:", r.aviso)
         return
-    print("Distancias a los grupos:", " / ".join(f"{i}:{d:.4f}" for i, d in enumerate(r.distancias)))
-    print(f"GRUPO SUGERIDO: {r.grupo} — {r.nombre}")
+    print("Distancias a los grupos:", " / ".join(f"{numero_grupo(i)}:{d:.4f}" for i, d in enumerate(r.distancias)))
+    print(f"GRUPO SUGERIDO: {numero_grupo(r.grupo)} — {r.nombre}")
     if r.nombre_informe:
         print(f"Nombre del informe: {r.nombre_informe}")
     print("Términos del grupo:", ", ".join(r.terminos[:8]))
@@ -45,7 +46,7 @@ def mostrar(agente: AgenteTriaje, queja: str) -> None:
         print("AVISO:", r.aviso)
     print("Reseñas más parecidas:")
     for s in r.similares:
-        print(f"  - [coseno={s['similitud']:.3f}, grupo {s['grupo']}] {s['texto'][:150]}")
+        print(f"  - [coseno={s['similitud']:.3f}, grupo {numero_grupo(s['grupo'])}] {s['texto'][:150]}")
 
 
 def main() -> None:

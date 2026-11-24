@@ -46,6 +46,7 @@ from codigo.config import (
     RUTA_LIMPIAS,
 )
 from codigo.preprocesamiento import preprocesar
+from codigo.presentacion import etiqueta_grupo
 
 
 @dataclass
@@ -125,7 +126,7 @@ class AgenteTriaje:
         self.nombres = etiquetar_clusters(self.terminos)
         # Un grupo sin reseñas del corpus no tiene términos; se le da un nombre genérico.
         for g in range(self.n_grupos):
-            self.nombres.setdefault(g, f"Grupo {g}")
+            self.nombres.setdefault(g, etiqueta_grupo(g))
             self.terminos.setdefault(g, [])
 
     def con_kmeans(self, kmeans: KMeans) -> "AgenteTriaje":
@@ -184,6 +185,6 @@ class AgenteTriaje:
             queja=queja, texto_limpio=limpio, valido=True, grupo=g, nombre=self.nombres[g], nombre_informe=self.nombres_secundarios.get(g),
             distancias=[float(d) for d in dist], segundo_grupo=g2, margen=margen,
             poco_seguro=margen < MARGEN_DUDOSO, terminos=self.terminos[g], similares=similares,
-            aviso=(f"Sugerencia poco segura: el grupo {g2} ({self.nombres[g2]}) está casi igual de cerca."
+            aviso=(f"Sugerencia poco segura: {self.nombres[g2]} está casi igual de cerca."
                    if margen < MARGEN_DUDOSO else None),
         )

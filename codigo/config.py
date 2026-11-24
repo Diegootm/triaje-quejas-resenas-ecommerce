@@ -70,3 +70,9 @@ N_SIMILARES = 3               # reseñas parecidas que se muestran con cada suge
 # --------------------------------------------------------------------------
 MAX_ITER_LLOYD = 300          # como el valor por defecto de scikit-learn
 TOL_LLOYD = 1e-4              # desplazamiento de centroides, relativo a la varianza media (como scikit-learn)
+
+# --------------------------------------------------------------------------
+# Presentación
+# --------------------------------------------------------------------------
+# Los grupos se numeran desde 1 SOLO al mostrarlos; modelos, huella, JSON e IDs internos usan 0.
+PRIMER_GRUPO_VISIBLE = 1

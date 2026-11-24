@@ -28,6 +28,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from codigo import agrupamiento, caracteristicas, config, decision_k, etiquetado, evaluacion, preprocesamiento  # noqa: E402
+from codigo.presentacion import numero_grupo  # noqa: E402
 from codigo.triaje import AgenteTriaje  # noqa: E402
 
 
@@ -101,7 +102,7 @@ def main() -> None:
     etiquetas = kmeans.labels_
     print(f"Iteraciones: {kmeans.n_iter_} | inercia: {kmeans.inertia_:.2f}")
     grupos, tamanos = np.unique(etiquetas, return_counts=True)
-    print("Tamaño de cada grupo:", dict(zip(grupos.tolist(), tamanos.tolist())))
+    print("Tamaño de cada grupo:", {numero_grupo(g): n for g, n in zip(grupos.tolist(), tamanos.tolist())})
 
     paso("5. Evaluación (cuaderno 04)")
     print(f"Silueta: {evaluacion.coeficiente_silueta(X_svd, etiquetas):.4f}")

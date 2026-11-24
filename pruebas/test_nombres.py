@@ -11,6 +11,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
 from codigo import agrupamiento, etiquetado  # noqa: E402
+from codigo.presentacion import numero_grupo  # noqa: E402
 
 HAY_MODELOS = (RAIZ / "modelos" / "modelo_kmeans.joblib").exists()
 
@@ -48,10 +49,10 @@ def test_los_terminos_de_la_particion_de_referencia_coinciden_con_el_informe(age
 def test_nombre_automatico_principal_y_del_informe_secundario(agente, es_referencia):
     assert agente.origen_nombres in ("referencia", "archivo")
     for g in range(agente.n_grupos):
-        assert agente.nombres[g].startswith(f"Grupo {g}: ")
+        assert agente.nombres[g].startswith(f"Grupo {numero_grupo(g)}: ")
         assert agente.nombres_secundarios[g] == etiquetado.NOMBRES_CLUSTER[g]
     r = agente.sugerir("It runs very small, I had to return it for a larger size.")
-    assert r.nombre.startswith("Grupo 4: ") and r.nombre_informe == etiquetado.NOMBRES_CLUSTER[4]
+    assert r.nombre.startswith("Grupo 5: ") and r.nombre_informe == etiquetado.NOMBRES_CLUSTER[4]
 
 
 def test_otra_particion_solo_tiene_nombre_automatico(agente):
@@ -59,6 +60,16 @@ def test_otra_particion_solo_tiene_nombre_automatico(agente):
     assert otro.nombres_secundarios == {} and otro.origen_nombres == "terminos"
     r = otro.sugerir("It runs very small, I had to return it for a larger size.")
     assert r.nombre.startswith("Grupo ") and r.nombre_informe is None
+
+
+def test_la_numeracion_visible_no_cambia_ids_huella_ni_archivos(agente, es_referencia):
+    import json
+    assert sorted(set(agente.etiquetas_corpus.tolist())) == list(range(6))          # IDs internos desde 0
+    assert agente.huella == etiquetado.HUELLA_REFERENCIA
+    assert agente.nombres_secundarios.keys() == set(range(6))
+    guardado = RAIZ / "modelos" / "nombres_grupos.json"
+    if guardado.exists():
+        assert set(json.loads(guardado.read_text(encoding="utf-8"))) == {str(g) for g in range(6)}
 
 
 def test_la_distribucion_expone_ambos_nombres(agente):
