@@ -38,9 +38,15 @@ def reducir_svd(
     n_componentes: int = N_COMPONENTES_SVD,
     semilla: int = SEMILLA,
 ) -> tuple[np.ndarray, TruncatedSVD]:
-    """Ajusta ``TruncatedSVD`` (LSA) y devuelve ``(matriz_reducida, svd)``."""
+    """Ajusta ``TruncatedSVD`` (LSA) y devuelve ``(matriz_reducida, svd)``.
+
+    Primero ajusta y luego proyecta con ``transform``, igual que hace el agente con
+    el corpus y con las quejas nuevas (``fit_transform`` da una proyección
+    ligeramente distinta). Así K-means se entrena sobre lo mismo que se usará.
+    """
     svd = TruncatedSVD(n_components=n_componentes, random_state=semilla)
-    return svd.fit_transform(matriz), svd
+    svd.fit(matriz)
+    return svd.transform(matriz), svd
 
 
 def validar_k(k: int, n_muestras: int | None = None, k_min: int = K_MIN, k_max: int = K_MAX) -> int:
@@ -77,7 +83,7 @@ def barrido_k(
     rango_k: Sequence[int] = RANGO_K,
     semilla: int = SEMILLA,
     muestra_silueta: int = MUESTRA_SILUETA,
-    progreso: Callable[[int, int, int], None] | None = None,
+    progreso: Callable[[int, int, dict], None] | None = None,
 ) -> tuple[pd.DataFrame, dict[int, KMeans]]:
     """Entrena K-means para cada K y devuelve ``(tabla, modelos)``.
 
@@ -85,8 +91,9 @@ def barrido_k(
     modelo final), así que puede reutilizarse sin volver a entrenarlo.
 
     La tabla tiene una fila por K con inercia (codo), silueta (sobre una muestra)
-    y el tamaño del grupo más chico y más grande. ``progreso(i, total, k)`` se
-    llama después de terminar cada K, para mostrar el avance real.
+    y el tamaño del grupo más chico y más grande. ``progreso(i, total, fila)`` se
+    llama después de terminar cada K con su fila de la tabla (``fila["K"]``,
+    inercia, silueta...), para mostrar el avance real punto por punto.
     """
     rango_k = list(rango_k)
     n = matriz.shape[0]
@@ -96,17 +103,18 @@ def barrido_k(
         etiquetas = km.labels_
         sil = silhouette_score(matriz, etiquetas, sample_size=min(muestra_silueta, n), random_state=semilla)
         tamanos = np.bincount(etiquetas, minlength=k)
-        filas.append({
+        fila = {
             "K": k,
             "inercia": float(km.inertia_),
             "silueta": float(sil),
             "grupo_menor": int(tamanos.min()),
             "grupo_mayor": int(tamanos.max()),
             "proporcion_menor": float(tamanos.min() / n),
-        })
+        }
+        filas.append(fila)
         modelos[k] = km
         if progreso is not None:
-            progreso(i, len(rango_k), k)
+            progreso(i, len(rango_k), fila)
     return pd.DataFrame(filas), modelos
 
 

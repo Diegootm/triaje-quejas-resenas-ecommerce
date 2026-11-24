@@ -54,7 +54,7 @@ def test_validar_k_rechaza_k_mayor_o_igual_que_muestras():
 # --------------------------------------------------------------------------
 def test_barrido_devuelve_tabla_y_modelos(datos):
     avances = []
-    tabla, modelos = agrupamiento.barrido_k(datos, range(2, 6), progreso=lambda i, n, k: avances.append((i, n, k)))
+    tabla, modelos = agrupamiento.barrido_k(datos, range(2, 6), progreso=lambda i, n, fila: avances.append((i, n, fila["K"])))
     assert tabla["K"].tolist() == [2, 3, 4, 5]
     assert {"inercia", "silueta", "grupo_menor", "grupo_mayor", "proporcion_menor"} <= set(tabla.columns)
     assert sorted(modelos) == [2, 3, 4, 5]
@@ -270,3 +270,11 @@ class TestAgenteConOtroK:
         assert base.nombres_manuales
         if base.origen_nombres == "referencia":
             assert base.nombres[4] == etiquetado.NOMBRES_CLUSTER[4]
+
+
+def test_svd_reducido_coincide_con_transform(datos):
+    """El corpus se entrena con la misma proyección (transform) que usa el agente."""
+    import scipy.sparse as sp
+    matriz = sp.csr_matrix(np.abs(datos))
+    reducida, svd = agrupamiento.reducir_svd(matriz, n_componentes=3)
+    np.testing.assert_allclose(reducida, svd.transform(matriz))

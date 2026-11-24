@@ -22,4 +22,4 @@ def test_entrenar_agente_muestra_la_ayuda():
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
     )
     assert resultado.returncode == 0, resultado.stderr
-    assert "--barrido" in resultado.stdout
+    assert "--k" in resultado.stdout

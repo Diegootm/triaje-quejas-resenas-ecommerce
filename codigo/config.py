@@ -30,6 +30,9 @@ ARCHIVOS_MODELO = (ARCHIVO_VECTORIZADOR, ARCHIVO_SVD, ARCHIVO_KMEANS)
 ARCHIVO_NOMBRES = "nombres_grupos.json"
 ARCHIVO_HUELLA_NOMBRES = "nombres_grupos_huella.json"
 
+# Decisión de K del agente (tabla del barrido, descartados, umbral y K elegido).
+ARCHIVO_DECISION_K = "seleccion_k.json"
+
 # --------------------------------------------------------------------------
 # Reproducibilidad y entrenamiento
 # --------------------------------------------------------------------------
@@ -51,7 +54,7 @@ RANGO_K = range(K_MIN, K_MAX + 1)
 # Regla de recomendación de K (ver agrupamiento.recomendar_k).
 K_MIN_RECOMENDADO = 3
 PROPORCION_MINIMA_GRUPO = 0.03
-TOLERANCIA_SILUETA = 0.10
+TOLERANCIA_SILUETA = 0.15
 
 # --------------------------------------------------------------------------
 # Triaje

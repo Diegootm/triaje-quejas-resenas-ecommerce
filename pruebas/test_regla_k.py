@@ -54,3 +54,11 @@ def test_k_menor_que_el_minimo_nunca_se_elige_aunque_tenga_la_mejor_silueta():
     rec = recomendar_k(_tabla(SILUETAS_CUADERNO_03), tolerancia=0.0)
     assert SILUETAS_CUADERNO_03[2] > max(v for k, v in SILUETAS_CUADERNO_03.items() if k != 2)
     assert 2 in rec.descartados and rec.k == 11
+
+
+def test_la_tolerancia_por_defecto_es_15_por_ciento():
+    assert config.TOLERANCIA_SILUETA == 0.15
+    tabla = _tabla(SILUETAS_CUADERNO_03)
+    por_defecto = recomendar_k(tabla)
+    assert por_defecto == recomendar_k(tabla, tolerancia=0.15)
+    assert por_defecto.k == 6

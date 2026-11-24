@@ -4,13 +4,16 @@ Hace lo mismo que los cuadernos 01, 02 y 03 (mismos parámetros y semilla 42),
 por lo que produce exactamente el modelo descrito en el informe:
 
     CSV de Kaggle -> criterio de queja (Rating/Recomendación/VADER) -> 4 675 quejas
-    -> preprocesamiento -> TF-IDF (4 675 x 5 000) -> SVD (100) -> K-means (K = 6)
+    -> preprocesamiento -> TF-IDF (4 675 x 5 000) -> SVD (100) -> K-means
+
+El agente elige K por sí mismo: entrena K-means para K = 2..12, aplica la regla de
+codigo/agrupamiento.recomendar_k (tolerancia en codigo/config.py), guarda la decisión
+en modelos/seleccion_k.json y se queda con el modelo ya entrenado del K elegido.
 
 Uso (desde la raíz del repositorio, con el entorno virtual activado):
 
-    python entrenar_agente.py                # entrena con K = 6 (configuración del informe)
-    python entrenar_agente.py --barrido      # además imprime la tabla de K = 2..12 (tarda ~2 min)
-    python entrenar_agente.py --k 8          # prueba otro número de grupos
+    python entrenar_agente.py                # el agente elige K (tarda unos minutos)
+    python entrenar_agente.py --k 8          # impone K manualmente (queda registrado como "manual")
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from codigo import agrupamiento, caracteristicas, config, etiquetado, evaluacion, preprocesamiento  # noqa: E402
+from codigo import agrupamiento, caracteristicas, config, decision_k, etiquetado, evaluacion, preprocesamiento  # noqa: E402
 from codigo.triaje import AgenteTriaje  # noqa: E402
 
 
@@ -34,15 +37,15 @@ def paso(msg: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Entrena el agente de triaje de quejas.")
-    parser.add_argument("--k", type=int, default=config.K_REFERENCIA_INFORME,
-                        help=f"número de grupos, entre {config.K_MIN} y {config.K_MAX} (por defecto {config.K_REFERENCIA_INFORME})")
-    parser.add_argument("--barrido", action="store_true",
-                        help="imprime inercia, silueta y la recomendación heurística para K = 2..12")
+    parser.add_argument("--k", type=int, default=None,
+                        help=f"impone K manualmente, entre {config.K_MIN} y {config.K_MAX} "
+                             "(si se omite, el agente lo elige con el barrido)")
     args = parser.parse_args()
-    try:
-        agrupamiento.validar_k(args.k)
-    except ValueError as error:
-        parser.error(str(error))
+    if args.k is not None:
+        try:
+            agrupamiento.validar_k(args.k)
+        except ValueError as error:
+            parser.error(str(error))
     t0 = time.time()
 
     try:
@@ -75,19 +78,26 @@ def main() -> None:
     print(f"Matriz TF-IDF: {X.shape} | densidad {X.nnz / (X.shape[0] * X.shape[1]):.3%}")
     print(f"Matriz SVD: {X_svd.shape} | varianza explicada {svd.explained_variance_ratio_.sum():.1%}")
 
-    if args.barrido:
-        paso("3b. Selección de K (codo + silueta)")
-        tabla, _ = agrupamiento.barrido_k(X_svd)
-        print(tabla.to_string(index=False))
-        rec = agrupamiento.recomendar_k(tabla)
-        if rec.k is None:
-            print("Recomendación heurística: ningún K cumple los filtros.")
-        else:
-            print(f"Recomendación heurística (no es garantía de calidad): K = {rec.k} "
-                  f"(mejor silueta entre candidatos: K = {rec.k_mejor_silueta}, {rec.silueta_mejor:.4f})")
+    paso("4. Elección de K por el agente (barrido K = %d..%d)" % (config.K_MIN, config.K_MAX))
+    print(f"{'K':>3} {'inercia':>10} {'silueta':>9} {'grupo menor':>12} {'grupo mayor':>12} {'% menor':>8}")
 
-    paso(f"4. K-means con K = {args.k}")
-    kmeans = agrupamiento.entrenar_kmeans(X_svd, k=args.k)
+    def mostrar_fila(i: int, total: int, fila: dict) -> None:
+        print(f"{fila['K']:>3} {fila['inercia']:>10.2f} {fila['silueta']:>9.4f} {fila['grupo_menor']:>12} "
+              f"{fila['grupo_mayor']:>12} {fila['proporcion_menor']:>8.2%}", flush=True)
+
+    t_barrido = time.time()
+    tabla, modelos = agrupamiento.barrido_k(X_svd, progreso=mostrar_fila)
+    print(f"Barrido terminado en {time.time() - t_barrido:.0f} s")
+    decision = decision_k.decidir_k(tabla)
+    if args.k is not None:
+        decision = decision_k.con_k_manual(decision, args.k)
+    print(decision_k.explicar_decision(decision))
+    ruta_decision = decision_k.guardar_decision(decision, config.DIR_MODELOS)
+    print(f"Decisión guardada en {ruta_decision}")
+
+    k = decision.k_elegido
+    paso(f"4b. Modelo K-means con K = {k} (el ya entrenado en el barrido)")
+    kmeans = modelos[k]
     etiquetas = kmeans.labels_
     print(f"Iteraciones: {kmeans.n_iter_} | inercia: {kmeans.inertia_:.2f}")
     grupos, tamanos = np.unique(etiquetas, return_counts=True)
@@ -95,7 +105,7 @@ def main() -> None:
 
     paso("5. Evaluación (cuaderno 04)")
     print(f"Silueta: {evaluacion.coeficiente_silueta(X_svd, etiquetas):.4f}")
-    ari = evaluacion.evaluar_estabilidad(X_svd, args.k)["ari"]
+    ari = evaluacion.evaluar_estabilidad(X_svd, k)["ari"]
     print(f"ARI medio (45 pares, n_init=1): {ari.mean():.4f} ± {ari.std(ddof=0):.4f}")
 
     paso("6. Guardado de modelos")

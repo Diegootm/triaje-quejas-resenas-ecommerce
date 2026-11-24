@@ -87,9 +87,9 @@ def _ejecutar_barrido(agente: AgenteTriaje) -> None:
     rango = list(config.RANGO_K)
     barra = st.progress(0.0, text=f"Entrenando K = {rango[0]}...")
 
-    def avance(i: int, total: int, k: int) -> None:
+    def avance(i: int, total: int, fila: dict) -> None:
         siguiente = f" Entrenando K = {rango[i]}..." if i < total else ""
-        barra.progress(i / total, text=f"K = {k} terminado ({i}/{total}).{siguiente}")
+        barra.progress(i / total, text=f"K = {fila['K']} terminado ({i}/{total}).{siguiente}")
 
     with almacen["lock"]:
         tabla, modelos = agrupamiento.barrido_k(agente.X_svd_corpus, rango, progreso=avance)
