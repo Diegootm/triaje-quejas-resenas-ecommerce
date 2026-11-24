@@ -1,267 +1,145 @@
-# Informe de cambios: selección configurable de K
+# Informe de cambios: K elegido por el agente y creación visible de las categorías
 
-Rama: `feat/seleccion-dinamica-clusters` · Commit base: `97d6185` · Cambios sin commit.
+Rama: `feature/seleccion-dinamica-clusters` · Commit base: `97d6185`.
 
-> **Estado de verificación.** Los cambios, incluidas las correcciones de la sección 10,
-> están implementados pero **no se ejecutaron**: no se corrió `pytest`, ni
-> `entrenar_agente.py`, ni la app de Streamlit. La única verificación hecha es sintáctica
-> (`ast.parse` de los seis archivos Python modificados o creados). En `modelos/` no hay
-> modelos entrenados, así que nada de lo descrito aquí se ha visto funcionar todavía.
-> Este informe no contiene resultados de ejecución ni métricas nuevas.
+**Verificación.** `python -m pytest -vv -s` en una ejecución limpia: **145 passed, 0 failed, 0 omitidas,
+14 advertencias, 47.5 s** (con modelos entrenados). `entrenar_agente.py` se ejecutó (≈ 22 s) y la app
+se probó con `AppTest` y en Chrome (mediciones de la sección 6).
 
-## 1. Resumen ejecutivo
+## 1. Resumen
 
-- K se elige en Streamlit entre 2 y 12. Al cambiarlo solo se entrena K-means sobre
-  el TF-IDF + SVD ya calculado del corpus. TF-IDF y SVD no se reentrenan, y cada
-  modelo por K queda en memoria.
-- Las quejas nuevas (individuales y por lote) se asignan con el K elegido. Clasificar
-  una queja nunca reentrena nada.
-- Hay una pestaña nueva, **Selección de K**:
-  - barrido K = 2..12 con barra de progreso real;
-  - gráficos de inercia y silueta con el K elegido marcado;
-  - tabla del barrido;
-  - una recomendación **heurística** con sus limitaciones a la vista;
-  - comparación con el modelo guardado (ARI y tabla de contingencia).
-- Los nombres de grupo se atan a una partición exacta mediante una **huella** (SHA-256 de
-  la asignación de cada reseña). Se aplican los de `nombres_grupos.json` o los manuales del
-  informe solo si la huella coincide. En cualquier otro caso se usan nombres formados con
-  los términos (sección 10).
-- No se agregaron dependencias. No se tocaron preprocesamiento, TF-IDF, datos, modelos
-  ni cuadernos.
+- **K ya no es fijo:** el agente barre K = 2..12, aplica una regla con tolerancia del 15 % y guarda el
+  modelo y la decisión (`modelos/seleccion_k.json`). `--k N` lo impone a mano; `--barrido` se eliminó
+  (el barrido siempre se hace).
+- **Interfaz:** la barra lateral arranca con el K del agente y permite explorar otro K sin guardarlo.
+  Hay dos pestañas nuevas: *Selección de K* y *Cómo el agente crea las categorías*.
+- **Nombres atados a la partición** mediante una huella SHA-256 de la asignación de cada reseña.
+- **Grupos numerados desde 1** para el usuario; internamente siguen siendo 0-based.
+- Sin dependencias nuevas. No se tocaron preprocesamiento, TF-IDF, datos ni cuadernos.
 
-## 2. Archivos modificados
+## 2. Flujo automático de K
 
-| Archivo | Propósito |
-|---|---|
-| `codigo/agrupamiento.py` | Constantes `K_MIN`, `K_MAX`, `RANGO_K`, `MUESTRA_SILUETA`. Nuevas funciones `validar_k`, `barrido_k` (tabla + modelos + callback de progreso) y `recomendar_k` (con `RecomendacionK`). `seleccionar_k` conserva su firma y ahora delega en `barrido_k`. `entrenar_kmeans` rechaza `k ≥ n_filas`. |
-| `codigo/etiquetado.py` | `huella_particion`, `HUELLA_REFERENCIA` (por ahora `None`), `es_modelo_referencia` y `nombres_manuales_validos` por huella exacta. `guardar_nombres`/`cargar_nombres` (`nombres_grupos.json` + `nombres_grupos_huella.json`), `NombresPersistidos` y `elegir_nombres_manuales`, que decide el origen de los nombres. |
-| `codigo/triaje.py` | `AgenteTriaje` guarda `X_svd_corpus`, `kmeans_referencia` y `etiquetas_referencia`. Método nuevo `con_kmeans(kmeans)`, que crea un agente con otro K reutilizando vectorizador, SVD y corpus. Lee `nombres_grupos.json` y lo aplica solo a la partición con la misma huella. Nuevos atributos `huella`, `origen_nombres`, `aviso_nombres` y `nombres_manuales`, y propiedad `k_referencia`. |
-| `app/app_streamlit.py` | Selector de K en la barra lateral, caché de modelos y agentes por K, pestaña "Selección de K". En las pestañas existentes, el K aparece en el resultado y en el CSV del lote. La barra lateral y la pestaña de grupos indican el origen de los nombres y muestran el aviso si se ignoró `nombres_grupos.json`. |
-| `entrenar_agente.py` | `--k` validado en 2..12. `--barrido` imprime además la recomendación heurística. Después de guardar los modelos carga `AgenteTriaje`, imprime la huella de la partición y guarda los nombres con su huella. Conserva los nombres de un `nombres_grupos.json` anterior si pertenecen a la misma partición. |
-| `pruebas/test_seleccion_k.py` | **Nuevo.** Pruebas con datos sintéticos de validación, barrido, recomendación, huella y nombres persistidos (incluidas particiones artificiales con los mismos tamaños y distinta asignación). Pruebas del agente que se omiten si no hay modelos. |
-| `README.md` | Sección "Número de grupos (K) en la interfaz", uso de `--barrido`/`--k`, y orden de prioridad de los nombres con su huella. |
-| `INFORME_CAMBIOS.md` | Este informe. |
+1. **Barrido** (`agrupamiento.barrido_k` / `iterar_barrido_k`): K-means por K, inercia, silueta sobre una
+   muestra de 4 000 y tamaños de grupo.
+2. **Regla** (`agrupamiento.recomendar_k`): descarta K < 3 y K con grupo menor < 3 % del corpus; entre los
+   restantes toma la mejor silueta `s*` y elige el K más pequeño con silueta ≥ `s* − 0.15·|s*|`.
+3. **Guardado** (`decision_k.py`): el modelo con ese K y `seleccion_k.json` (tabla, descartados, umbral,
+   margen, semilla, fecha, origen `agente` o `manual`).
 
-## 3. Funcionalidades implementadas
+Tabla real (semilla 42):
 
-1. **Selección manual de K** (`st.slider`, 2..12, validada con `agrupamiento.validar_k`).
-   El valor inicial es el K del modelo guardado.
-2. **Inferencia con el K elegido** en las pestañas "Queja individual", "Lote CSV" y
-   "Grupos descubiertos": distancias a los K centroides, distribución y términos por grupo.
-3. **Barrido K = 2..12** bajo demanda (botón), con progreso real por cada K terminado.
-4. **Gráficos** de inercia y silueta (matplotlib, ya declarado en `requirements.txt`)
-   con líneas para el K seleccionado y el recomendado.
-5. **Tabla del barrido**: K, inercia, silueta, grupo menor, grupo mayor, proporción del
-   grupo menor, y marcas de "seleccionado" y "recomendado".
-6. **Recomendación heurística** con un botón "Usar K = x". La selección manual se conserva.
-7. **Comparación con el modelo guardado**: ARI entre particiones y tabla de contingencia
-   normalizada por fila. Reutiliza `evaluacion.indice_rand_ajustado` y
-   `evaluacion.comparar_etiquetas_manuales`.
-8. **Nombres ligados a la partición**: `nombres_grupos.json` verificado por huella, luego los
-   nombres del informe si la huella es la de referencia, y si no, nombres por términos.
+| K | Inercia | Silueta | Grupo menor | Estado |
+| --- | --- | --- | --- | --- |
+| 2 | 944.68 | 0.0268 | 31.4 % | descartado: K menor que 3 |
+| 3 | 931.45 | 0.0157 | 24.2 % | candidato |
+| 4 | 920.60 | 0.0156 | 8.9 % | candidato |
+| 5 | 911.66 | 0.0175 | 8.7 % | candidato |
+| **6** | 903.62 | **0.0216** | 6.4 % | **elegido** |
+| 7 | 896.25 | 0.0176 | 2.9 % | descartado: grupo más chico con 2.9 % (< 3 %) |
+| 8 | 889.16 | 0.0184 | 2.995 % | descartado: grupo más chico con 3.0 % (< 3 %) |
+| 9 | 881.04 | 0.0196 | 2.8 % | descartado: grupo más chico con 2.8 % (< 3 %) |
+| 10 | 873.74 | 0.0192 | 3.3 % | candidato |
+| 11 | 869.42 | 0.0249 | 3.2 % | candidato; mejor silueta |
+| 12 | 863.06 | 0.0030 | 2.4 % | descartado: grupo más chico con 2.4 % (< 3 %) |
 
-## 4. Cómo funciona K configurable
+**Decisión:** K = 6. `s*` = 0.02492 (K = 11); umbral = 0.02492 − 0.15 · 0.02492 = **0.02118**;
+silueta de K = 6 = 0.02161, margen **+0.00043** (≈ 2 % sobre el umbral): el K más pequeño que lo alcanza.
 
-1. `AgenteTriaje()` carga del disco el vectorizador, el SVD y el K-means guardado.
-   Calcula una sola vez `X_corpus` (TF-IDF del corpus) y `X_svd_corpus` (proyección SVD).
-2. Si el K elegido es el del modelo guardado, se usa ese modelo sin entrenar nada.
-3. Si es otro K:
-   - Se entrena `agrupamiento.entrenar_kmeans(X_svd_corpus, k)` (semilla 42, `n_init=10`,
-     los mismos parámetros que el modelo final).
-   - El modelo se guarda en un diccionario compartido (`st.cache_resource`, protegido
-     con un `threading.Lock`).
-   - `con_kmeans` crea un agente derivado: copia superficial que comparte vectorizador,
-     SVD y corpus, y recalcula etiquetas del corpus, términos y nombres.
-4. El barrido usa la misma función de entrenamiento, así que los modelos que produce
-   son los mismos que se entrenarían por separado y se reutilizan al elegir cualquier K.
-5. Nada se escribe en disco. Al reiniciar el proceso de Streamlit, los modelos con
-   otros K se vuelven a entrenar cuando se pidan.
+## 3. Archivos
 
-## 5. Recomendación automática (heurística)
+| Archivo | Cambio |
+| --- | --- |
+| `codigo/config.py` | Única fuente de constantes: semilla, `RANGO_K`, umbrales de la regla, `N_INIT`, velocidades y tamaños de la animación, `SUBMUESTRA_MAPA`. |
+| `codigo/agrupamiento.py` | `validar_k`, `iterar_barrido_k`, `barrido_k`, `recomendar_k`. |
+| `codigo/decision_k.py` | **Nuevo.** `DecisionK`, `decidir_k`, `con_k_manual`, guardar/cargar JSON, `explicar_decision`. |
+| `codigo/lloyd.py` | **Nuevo.** K-means paso a paso (réplica de scikit-learn con las mismas 10 inicializaciones), PCA 2D. |
+| `codigo/creacion.py` | **Nuevo.** Eventos reales de la animación, con su duración de cálculo y el ritmo de reproducción. |
+| `codigo/etiquetado.py` | Huella de partición, nombres persistidos con huella, nombre automático y nombre del informe. `HUELLA_REFERENCIA` registrada para K = 6. |
+| `codigo/presentacion.py` | **Nuevo.** Numeración visible desde 1 (única fuente). |
+| `codigo/triaje.py` | `con_kmeans` (otro K sin reentrenar TF-IDF ni SVD), huella y origen de nombres. |
+| `app/` | App dividida: `estado.py`, `vista_triaje.py`, `vista_k.py`, `vista_creacion.py`, `escena_creacion.py`, `graficos.py`. |
+| `entrenar_agente.py`, `triaje_cli.py` | Entrenar usa el barrido y la regla (`--k` impone); la terminal usa el K de `seleccion_k.json`. |
+| `preparar_entorno.py` | **Nuevo.** Descarga los recursos de NLTK una vez; la app y los scripts avisan si faltan. |
+| `pruebas/` | 145 pruebas (K, regla, decisión, huella, Lloyd, gráficos, creación, estado, scripts, `AppTest`). |
 
-`agrupamiento.recomendar_k(tabla, k_min=3, proporcion_minima=0.03, tolerancia=0.10)`:
+## 4. Numeración de grupos
 
-1. Descarta K < 3, porque dos grupos no distinguen tipos de queja.
-2. Descarta los K cuyo grupo más chico tiene menos del 3 % del corpus (grupos degenerados).
-3. Entre los candidatos busca la mejor silueta `s*`.
-4. Recomienda el **K más pequeño** con silueta ≥ `s* − 0.10·|s*|` (parsimonia).
+La interfaz, la terminal y el CSV descargado muestran **Grupo 1 … Grupo K**; modelos, JSON y huella usan
+0..K-1. Equivalencia con el informe anterior (que numeraba desde 0): **grupo del informe + 1**.
 
-**No se presenta como garantía de calidad.** Según la tabla ya guardada en el cuaderno 03
-(no recalculada aquí), la silueta del corpus es baja (≈0.003–0.027) y casi plana. Por eso
-maximizar la silueta sin más no es defendible: elegiría K=2. Los umbrales (3, 3 %, 10 %)
-son decisiones de diseño, no valores optimizados. **No se sabe qué K recomendará la regla
-con los datos reales hasta ejecutar el barrido.**
+| Informe | Interfaz | Quejas | Nombre |
+| --- | --- | --- | --- |
+| 0 | 1 | 1 873 | Insatisfacción general de ajuste, color y tela |
+| 1 | 2 | 435 | Calidad y precio |
+| 2 | 3 | 361 | Expectativa vs. realidad |
+| 3 | 4 | 300 | Silueta poco favorecedora |
+| 4 | 5 | 720 | Tallaje |
+| 5 | 6 | 986 | Apariencia vs. modelo |
 
-## 6. Integración con Streamlit
+## 5. Pestaña "Cómo el agente crea las categorías"
 
-- La barra lateral tiene el selector de K. El resumen del modelo indica el origen de los
-  nombres (archivo verificado, informe o términos) y, si se ignoró `nombres_grupos.json`,
-  muestra el motivo.
-- Pestañas: "Queja individual", "Lote CSV", "Grupos descubiertos" y **"Selección de K"** (nueva).
-- Cachés:
-  - `_cargar_agente` (agente base);
-  - `_almacen` (modelos por K, agentes derivados y tabla del barrido).
-  Los dos se comparten entre sesiones del mismo proceso.
-- Progreso real:
-  - `st.spinner` mientras se entrena un K individual;
-  - `st.progress` actualizado por el callback de `barrido_k` al terminar cada K.
-  No hay animaciones simuladas.
-- El botón "Usar K = x" cambia el selector mediante un callback de `st.session_state`.
+- **Fase 1:** 11 miniaturas (una por K, entrenado en vivo) y curva de silueta que se llena punto a punto;
+  K descartados en gris con su motivo; al final, K elegido resaltado, explicación y comprobación contra
+  `seleccion_k.json` (tabla igual y misma regla → "coincide").
+- **Fase 2:** mapa 2D grande: quejas grises → semillas de k-means++ una a una → iteraciones con
+  recoloreo, estela de centroides y contadores (iteración, inercia, quejas que cambiaron). Tira con las
+  10 inicializaciones (inercia final, ARI frente al modelo; ganó la 10, ARI 1.00). Cursor con fragmento
+  de reseña al terminar.
+- **Fase 3:** rótulo de cada grupo en su centroide, términos uno a uno, tamaño que sube contando, nombre
+  automático y nombre del informe.
+- **Velocidades:** Velocidad real, Lenta (0,5 s/paso), Muy lenta (1,2 s) y Didáctica (2,5 s). **Para la
+  demostración se recomienda "Lenta".** La primera ejecución calcula en vivo; después se repite sin
+  recalcular. Los cálculos nunca se alteran: solo se espacian los pasos, y la pantalla lo dice.
+- **Submuestra:** mapa y miniaturas dibujan **1 500 de las 4 675 quejas** (fija, semilla 42); los
+  cálculos usan todas.
+- **Avisos fijos:** el dibujo 2D explica ≈ 4.8 % de la varianza; su silueta (0.174) es la separación del
+  dibujo 2D, no la calidad del modelo (0.0216 en 100 dimensiones); el modelo final es la mejor de 10
+  inicializaciones y se anima esa ganadora.
 
-## 7. Riesgos, limitaciones y pendientes
+## 6. Mediciones (Chrome con GPU, submuestra de 1 500 puntos)
 
-- **Nada fue ejecutado** (ver el aviso inicial). Hay que verificar en particular:
-  - que la `Styler` con `background_gradient` se renderiza en Streamlit 1.40.1;
-  - el comportamiento del slider con `key` y el callback;
-  - los tiempos reales del barrido y del entrenamiento de un K.
-- **`HUELLA_REFERENCIA` no está registrada.** Hasta que el equipo la registre, los nombres
-  del informe no se aplican automáticamente a ningún modelo (ver sección 10).
-- **La huella es estricta:** si una sola reseña cambia de grupo, por diferencias numéricas
-  entre plataformas o versiones de librerías, o cambia el CSV procesado, los nombres no se
-  aplican y se ven los nombres por términos. Ese es el comportamiento buscado.
-- **Mientras corre el barrido**, el `Lock` bloquea en otras sesiones el entrenamiento de
-  otros K.
-- **Los modelos con otros K solo viven en memoria**: se pierden al reiniciar la app.
-- **Los IDs de grupo cambian con K**: el grupo "4" con K=8 no tiene relación con el grupo
-  "4" con K=6.
-- **Pendientes (no implementados):**
-  - estabilidad (ARI entre semillas) por cada K dentro de la recomendación;
-  - proyección 2D del corpus y de la queja nueva;
-  - guardar en disco modelos por K;
-  - HDBSCAN (fuera de alcance);
-  - actualizar los cuadernos para que usen `barrido_k`;
-  - visualizar un reentrenamiento por reseña. No se implementó porque el sistema no
-    reentrena y ese requisito no está confirmado.
+| Velocidad | Fase 1 | Fase 2 | Fase 3 | Total |
+| --- | --- | --- | --- | --- |
+| Real, en vivo | 7.5 s | 3.2 s | < 10 ms | 10.8 s |
+| Real, repetición | 7.3 s | 3.2 s | < 10 ms | 11.7 s |
+| Lenta | 7.9 s | 25.5 s | 16.5 s | 50.6 s |
+| Muy lenta | 18.6 s | 60.4 s | 40.0 s | 120.6 s |
+| Didáctica | 38.2 s | 125.1 s | 80.8 s | 247.2 s |
 
-## 8. Pruebas que debe ejecutar otro integrante
+Con los 4 675 puntos cada cuadro bloqueaba el navegador 200–260 ms (a "Lenta", 42 % del tiempo de la fase 2
+en huecos > 50 ms). Con la submuestra bajó a 13 % (6 % a "Muy lenta", 3 % a "Didáctica"). A velocidad real
+las iteraciones se ven cada ~150–200 ms: el dibujo es más lento que el cálculo (≈ 5.8 s la fase 1 y
+≈ 2.7 s la fase 2 en el servidor).
 
-1. `python -m pytest -q` **antes** de entrenar. Se ejecutan las pruebas sintéticas de
-   `test_seleccion_k.py` y las 3 de preprocesamiento; las del agente se omiten.
-2. `python entrenar_agente.py` y luego `python -m pytest -q` de nuevo:
-   - las 4 pruebas originales del agente (K=6) deben seguir pasando;
-   - también `TestAgenteConOtroK`.
-3. `python entrenar_agente.py --barrido`. Revisar la tabla y la recomendación impresas,
-   y comparar con la tabla del cuaderno 03.
-4. Prueba manual de la app (`streamlit run app/app_streamlit.py`):
-   - Con K=6: mismos grupos, nombres manuales y distancias que antes del cambio.
-   - Cambiar a K=8: aparece el spinner y la pestaña de grupos muestra 8 grupos con nombres
-     por términos. Una queja de ejemplo muestra 8 distancias.
-   - Volver a K=8 después de pasar por otro K: no debe volver a entrenar (sin spinner).
-   - "Selección de K" → calcular barrido: la barra avanza de 1/11 a 11/11, aparecen los
-     gráficos, la tabla y la recomendación. El botón "Usar K = x" cambia el selector.
-   - La comparación con K≠6 muestra el ARI y la tabla de contingencia, y cada fila suma 100 %.
-   - El lote CSV incluye la columna K y el archivo descargado se llama `triaje_resultado_k{K}.csv`.
-   - Con un texto sin vocabulario se sigue mostrando el aviso.
-5. Opcional: `python entrenar_agente.py --k 13` debe terminar con un error de validación.
-6. Nombres y huella (sección 10):
-   - Tras entrenar deben existir `modelos/nombres_grupos.json` (mismo formato
-     `{"0": "nombre", ...}`) y `modelos/nombres_grupos_huella.json`. El script imprime la huella.
-   - Editar a mano un nombre en `nombres_grupos.json` y abrir la app: el nombre editado
-     aparece y la barra lateral dice "guardados en modelos/nombres_grupos.json (huella verificada)".
-   - Con ese mismo archivo, cambiar a otro K: los nombres editados **no** aparecen; se ven
-     nombres por términos.
-   - Volver a ejecutar `python entrenar_agente.py` sin cambios: si la huella impresa es la
-     misma, el nombre editado se conserva ("Se conservan los nombres...").
-   - Borrar solo `nombres_grupos_huella.json`: la app debe ignorar `nombres_grupos.json` y
-     mostrar el aviso de formato anterior.
-   - Alterar la huella en `nombres_grupos_huella.json`: la app debe ignorar los nombres y
-     avisar que pertenecen a otra partición.
-   - Escribir un JSON inválido en `nombres_grupos.json`: la app carga igual y muestra el aviso.
-   - Entrenar el mismo modelo en dos equipos distintos y comparar las huellas impresas. Si
-     difieren, `HUELLA_REFERENCIA` solo valdrá en el entorno donde se registró.
-
-Haz copia de los archivos de `modelos/` antes de alterarlos y restáuralos después.
-
-## 9. Instrucciones para reproducir y verificar
+## 7. Cómo reproducir
 
 ```powershell
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pytest -q                      # 1. pruebas sin modelos
-python entrenar_agente.py                # 2. genera modelos/ (K = 6)
-python -m pytest -q                      # 3. pruebas completas
-python entrenar_agente.py --barrido      # 4. opcional: tabla K = 2..12 + recomendación (vuelve a guardar el modelo K = 6)
-streamlit run app/app_streamlit.py       # 5. verificación manual (sección 8)
+pip install -r requirements.txt
+python preparar_entorno.py
+python entrenar_agente.py            # ≈ 22 s; --k N para imponer K
+python -m pytest -vv -s              # 145 passed
+streamlit run app/app_streamlit.py
 ```
 
-Revisar los cambios con `git diff` y `git status` antes de hacer commit. No se creó ningún commit.
+## 8. Limitaciones conocidas
 
-## 10. Correcciones posteriores a la revisión del diff
-
-### 10.1 Identidad del modelo de referencia
-
-**Problema:** `es_modelo_referencia` reconocía la partición K=6 solo por los tamaños de los
-grupos. Dos particiones distintas pueden tener los mismos tamaños.
-
-**Corrección:**
-- `etiquetado.huella_particion(etiquetas)` calcula un SHA-256 de la asignación completa.
-  Usa enteros de 64 bits *little-endian*, en el orden del corpus, con un prefijo que incluye
-  el número de reseñas y K.
-- Dos particiones con los mismos tamaños pero distinta asignación, o con los IDs
-  intercambiados, tienen huellas distintas.
-- `es_modelo_referencia` y `nombres_manuales_validos` comparan contra `HUELLA_REFERENCIA`.
-- `TAMANOS_REFERENCIA` se eliminó.
-
-**Decisión de diseño:** el repositorio no contiene ninguna copia de la partición de
-referencia. Los cuadernos solo guardaron los `.joblib`, que no están versionados, y el CSV
-procesado no tiene columna de grupo. Por eso la huella **no se pudo calcular** en esta sesión
-(no se permitió entrenar). `HUELLA_REFERENCIA = None`, y en ese estado los nombres del
-informe no se aplican a ningún modelo. Se eligió fallar de forma segura: sin evidencia
-fiable no se asignan nombres.
-
-**Para registrarla:**
-1. Ejecutar `python entrenar_agente.py` (K = 6).
-2. Comprobar con `pytest` que se reproducen los tamaños y las distancias de la Tabla 44.
-3. Revisar que los términos de cada grupo concuerdan con `NOMBRES_CLUSTER`.
-4. Copiar la huella impresa en `HUELLA_REFERENCIA` de `codigo/etiquetado.py`.
-
-La huella se calcula siempre sobre la partición que ve `AgenteTriaje`: `predict` sobre
-`svd.transform(vectorizador.transform(texto_limpio))` del CSV procesado. `entrenar_agente.py`
-la obtiene cargando ese mismo agente, de modo que la huella impresa, la guardada y la
-comprobada en la app se calculan con el mismo código.
-
-### 10.2 Compatibilidad con `nombres_grupos.json`
-
-**Problema:** `entrenar_agente.py` escribía `nombres_grupos.json`, pero `AgenteTriaje` había
-dejado de leerlo.
-
-**Corrección:**
-- `nombres_grupos.json` **mantiene su formato** `{"0": "nombre", ...}`.
-- Se agrega el archivo auxiliar `modelos/nombres_grupos_huella.json` con
-  `{"huella_particion", "k", "n_resenas"}`. Lo escribe `etiquetado.guardar_nombres`.
-- `AgenteTriaje` lee ambos archivos una sola vez (`cargar_nombres`). En cada partición,
-  `elegir_nombres_manuales` decide en este orden:
-  1. `nombres_grupos.json`, si su huella coincide con la partición y sus IDs están en
-     `0..K-1` (origen `"archivo"`);
-  2. `NOMBRES_CLUSTER`, si la huella es `HUELLA_REFERENCIA` (origen `"referencia"`);
-  3. nombres por términos (origen `"terminos"`).
-- Los agentes con otro K comprueban la misma huella, así que nunca heredan los nombres del
-  modelo guardado (salvo que la partición sea idéntica).
-- `entrenar_agente.py` conserva los nombres de un `nombres_grupos.json` anterior cuando la
-  nueva partición es idéntica (misma huella). Así, reentrenar no borra nombres editados a mano.
-- Los JSON mal formados no rompen la carga: se ignoran y se muestra un aviso.
-
-**Cambio de compatibilidad imprescindible:** un `nombres_grupos.json` generado antes de
-esta corrección, sin `nombres_grupos_huella.json`, **se ignora**, porque no hay forma de
-saber a qué partición pertenece. La app lo indica con un aviso. Solución: volver a ejecutar
-`python entrenar_agente.py`. Los dos archivos están en `modelos/`, que ya ignora git.
-
-### 10.3 Pruebas agregadas en `pruebas/test_seleccion_k.py`
-
-Escritas pero **no ejecutadas**.
-
-- Particiones artificiales de 6 grupos con tamaños idénticos (3, 2, 2, 1, 1, 1): una con dos
-  reseñas intercambiadas y otra con los IDs 1 y 2 renombrados. Ninguna se reconoce como la
-  de referencia ni recibe nombres guardados para otra partición.
-- Huella determinista e independiente del tipo de entero; cambia si cambia el corpus.
-- Sin `HUELLA_REFERENCIA` nunca se aplican los nombres del informe.
-- `guardar_nombres` conserva el formato de `nombres_grupos.json` y escribe la huella.
-- Prioridad: archivo verificado, luego referencia, luego términos. Un archivo de otra
-  partición no impide usar la referencia.
-- Se ignoran el archivo del formato anterior (sin huella), los IDs fuera de rango y el JSON
-  inválido (`ValueError` en `cargar_nombres`).
-- Con modelos entrenados:
-  - la huella del agente corresponde a su partición;
-  - los nombres guardados corresponden al modelo cargado;
-  - los nombres persistidos no pasan a un modelo con el mismo K entrenado con otra semilla;
-  - el modelo de referencia usa los nombres del informe (se omite mientras
-    `HUELLA_REFERENCIA` sea `None`).
+- **Silueta baja y margen estrecho:** 0.0216 es muy baja y K = 6 supera el umbral por solo +0.00043; las
+  diferencias entre K pueden ser ruido de la muestra de silueta. La regla es heurística. K = 11 tiene
+  mejor silueta pero grupos pequeños.
+- **Vista 2D ≈ 4.8 % de la varianza:** los grupos se ven más mezclados de lo que están.
+- **La huella cubre solo las asignaciones** (no centroides ni vectorizador). Si cambian por diferencias
+  numéricas o del corpus, los nombres no se aplican (comportamiento buscado).
+- **`nombres_grupos.json` antiguo** (sin `nombres_grupos_huella.json`) se ignora: volver a ejecutar
+  `python entrenar_agente.py`.
+- **`pytest -s`:** joblib/loky escribe en stderr una línea sobre núcleos físicos (`wmic` no existe en
+  Windows 11). Es inofensiva.
+- **Carga de CSV no cubierta por `AppTest`** (no puede subir archivos): se prueba `clasificar_lote` y la
+  pestaña solo hasta "sin archivo cargado".
+- **Dependencia de scikit-learn:** las pruebas de guarda de `lloyd.py` reproducen la secuencia de
+  inicializaciones de `KMeans`; con otra versión de scikit-learn que la fijada (1.5.2) pueden fallar a
+  propósito.
+- **Los modelos con otro K viven solo en memoria** y los IDs de grupo cambian con K.
+- Pendientes: estabilidad (ARI entre semillas) por K, guardar modelos por K, actualizar los cuadernos
+  para que usen `barrido_k`.
