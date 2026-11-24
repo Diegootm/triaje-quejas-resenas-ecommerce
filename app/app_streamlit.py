@@ -29,7 +29,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-from codigo import agrupamiento, evaluacion  # noqa: E402
+from codigo import agrupamiento, config, evaluacion  # noqa: E402
 from codigo.triaje import AgenteTriaje  # noqa: E402
 
 EJEMPLOS = {
@@ -84,7 +84,7 @@ def _agente_para_k(agente: AgenteTriaje, k: int) -> AgenteTriaje:
 def _ejecutar_barrido(agente: AgenteTriaje) -> None:
     """Entrena K-means para K = 2..12 mostrando el avance real y guarda tabla y modelos."""
     almacen = _almacen()
-    rango = list(agrupamiento.RANGO_K)
+    rango = list(config.RANGO_K)
     barra = st.progress(0.0, text=f"Entrenando K = {rango[0]}...")
 
     def avance(i: int, total: int, k: int) -> None:
@@ -108,7 +108,7 @@ def _selector_k(agente: AgenteTriaje) -> int:
     with st.sidebar:
         st.header("Número de grupos")
         k = st.slider(
-            "K (grupos de K-means)", agrupamiento.K_MIN, agrupamiento.K_MAX, key=CLAVE_K,
+            "K (grupos de K-means)", config.K_MIN, config.K_MAX, key=CLAVE_K,
             help=(f"El modelo guardado usa K = {agente.k_referencia}. Otros valores entrenan solo K-means "
                   "sobre el mismo TF-IDF + SVD; las quejas nuevas se asignan con el K elegido."),
         )
@@ -249,7 +249,7 @@ def _grafico_barrido(tabla: pd.DataFrame, k_actual: int, k_recomendado: int | No
     fig = Figure(figsize=(10, 3.4))
     ejes = fig.subplots(1, 2)
     for eje, columna, titulo in ((ejes[0], "inercia", "Inercia (método del codo)"),
-                                 (ejes[1], "silueta", f"Silueta (muestra de {agrupamiento.MUESTRA_SILUETA})")):
+                                 (ejes[1], "silueta", f"Silueta (muestra de {config.MUESTRA_SILUETA})")):
         eje.plot(tabla["K"], tabla[columna], "o-", color="#4C78A8")
         eje.axvline(k_actual, color="#E45756", linewidth=2, label=f"K seleccionado = {k_actual}")
         if k_recomendado is not None and k_recomendado != k_actual:
@@ -268,7 +268,7 @@ def _usar_k(k: int) -> None:
 
 
 def _seccion_barrido(agente: AgenteTriaje, k_actual: int) -> None:
-    st.markdown(f"#### Comparar K = {agrupamiento.K_MIN} … {agrupamiento.K_MAX}")
+    st.markdown(f"#### Comparar K = {config.K_MIN} … {config.K_MAX}")
     st.caption(
         "Se entrena K-means para cada K sobre la misma representación TF-IDF + SVD del corpus. "
         "**Inercia**: suma de distancias al centroide (siempre baja al subir K; se busca un 'codo'). "
@@ -277,7 +277,7 @@ def _seccion_barrido(agente: AgenteTriaje, k_actual: int) -> None:
     )
     tabla = _almacen()["barrido"]
     if tabla is None:
-        if st.button(f"Calcular inercia y silueta para K = {agrupamiento.K_MIN}…{agrupamiento.K_MAX}", type="primary"):
+        if st.button(f"Calcular inercia y silueta para K = {config.K_MIN}…{config.K_MAX}", type="primary"):
             _ejecutar_barrido(agente)
             tabla = _almacen()["barrido"]
         else:
@@ -304,16 +304,16 @@ def _seccion_barrido(agente: AgenteTriaje, k_actual: int) -> None:
         st.info(
             f"**Recomendación heurística: K = {rec.k}.** Mejor silueta entre los candidatos: "
             f"K = {rec.k_mejor_silueta} ({rec.silueta_mejor:.4f}). Se recomienda el K más pequeño con silueta "
-            f"≥ {rec.umbral_silueta:.4f} (hasta {agrupamiento.TOLERANCIA_SILUETA:.0%} por debajo de la mejor)."
+            f"≥ {rec.umbral_silueta:.4f} (hasta {config.TOLERANCIA_SILUETA:.0%} por debajo de la mejor)."
         )
         if rec.k != k_actual:
             st.button(f"Usar K = {rec.k}", on_click=_usar_k, args=(rec.k,))
     with st.expander("Cómo se calcula la recomendación y sus limitaciones"):
         st.markdown(
-            f"1. Se descartan K < {agrupamiento.K_MIN_RECOMENDADO} (dos grupos no distinguen tipos de queja) y los K "
-            f"cuyo grupo más chico tiene menos del {agrupamiento.PROPORCION_MINIMA_GRUPO:.0%} del corpus.\n"
+            f"1. Se descartan K < {config.K_MIN_RECOMENDADO} (dos grupos no distinguen tipos de queja) y los K "
+            f"cuyo grupo más chico tiene menos del {config.PROPORCION_MINIMA_GRUPO:.0%} del corpus.\n"
             "2. Entre los restantes se busca la mejor silueta.\n"
-            f"3. Se elige el K más pequeño cuya silueta esté a menos de {agrupamiento.TOLERANCIA_SILUETA:.0%} "
+            f"3. Se elige el K más pequeño cuya silueta esté a menos de {config.TOLERANCIA_SILUETA:.0%} "
             "de la mejor (preferir modelos más simples cuando la diferencia es pequeña).\n\n"
             "**Limitaciones:** es una regla heurística, no una prueba de calidad. La silueta se calcula sobre una "
             "muestra y las diferencias entre K son pequeñas, así que pueden deberse al azar. No mide si los grupos "

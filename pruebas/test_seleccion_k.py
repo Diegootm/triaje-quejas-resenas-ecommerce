@@ -50,7 +50,7 @@ def test_validar_k_rechaza_k_mayor_o_igual_que_muestras():
 
 
 # --------------------------------------------------------------------------
-# barrido_k / seleccionar_k
+# barrido_k
 # --------------------------------------------------------------------------
 def test_barrido_devuelve_tabla_y_modelos(datos):
     avances = []
@@ -68,11 +68,6 @@ def test_barrido_es_reproducible_y_coincide_con_entrenar_kmeans(datos):
     pd.testing.assert_frame_equal(t1, t2)
     directo = agrupamiento.entrenar_kmeans(datos, k=4)
     np.testing.assert_array_equal(m1[4].labels_, directo.labels_)
-
-
-def test_seleccionar_k_conserva_su_interfaz(datos):
-    tabla = agrupamiento.seleccionar_k(datos, range(2, 4))
-    assert isinstance(tabla, pd.DataFrame) and tabla["K"].tolist() == [2, 3]
 
 
 # --------------------------------------------------------------------------

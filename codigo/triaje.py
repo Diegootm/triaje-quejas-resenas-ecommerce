@@ -34,15 +34,18 @@ from codigo.etiquetado import (
     huella_particion,
     terminos_top_por_cluster,
 )
+from codigo.config import (
+    ARCHIVO_KMEANS,
+    ARCHIVO_SVD,
+    ARCHIVO_VECTORIZADOR,
+    ARCHIVOS_MODELO,
+    DIR_MODELOS,
+    MARGEN_DUDOSO,
+    N_SIMILARES,
+    N_TERMINOS_TOP,
+    RUTA_LIMPIAS,
+)
 from codigo.preprocesamiento import preprocesar
-
-RAIZ = Path(__file__).resolve().parents[1]
-DIR_MODELOS = RAIZ / "modelos"
-RUTA_LIMPIAS = RAIZ / "datos" / "procesados" / "resenas_limpias.csv"
-
-# Si la diferencia entre la distancia al 1.er y al 2.º grupo es menor que esto,
-# la sugerencia se marca como "poco segura" (reseña de frontera).
-MARGEN_DUDOSO = 0.02
 
 
 @dataclass
@@ -66,16 +69,16 @@ class AgenteTriaje:
 
     def __init__(self, dir_modelos: str | Path = DIR_MODELOS, ruta_corpus: str | Path = RUTA_LIMPIAS):
         dir_modelos = Path(dir_modelos)
-        faltan = [n for n in ("vectorizador.joblib", "svd_lsa.joblib", "modelo_kmeans.joblib")
+        faltan = [n for n in ARCHIVOS_MODELO
                   if not (dir_modelos / n).exists()]
         if faltan:
             raise FileNotFoundError(
                 f"Faltan modelos en {dir_modelos}: {', '.join(faltan)}. "
                 "Entrena primero con 'python entrenar_agente.py' o ejecutando los cuadernos 01-03."
             )
-        self.vectorizador = joblib.load(dir_modelos / "vectorizador.joblib")
-        self.svd = joblib.load(dir_modelos / "svd_lsa.joblib")
-        kmeans = joblib.load(dir_modelos / "modelo_kmeans.joblib")
+        self.vectorizador = joblib.load(dir_modelos / ARCHIVO_VECTORIZADOR)
+        self.svd = joblib.load(dir_modelos / ARCHIVO_SVD)
+        kmeans = joblib.load(dir_modelos / ARCHIVO_KMEANS)
 
         # Corpus de quejas ya preprocesadas: sirve para mostrar reseñas parecidas
         # y para reentrenar K-means con otro K sobre la misma representación.
@@ -111,7 +114,7 @@ class AgenteTriaje:
             )
         self.kmeans = kmeans
         self.etiquetas_corpus = kmeans.predict(self.X_svd_corpus)
-        self.terminos = terminos_top_por_cluster(self.X_corpus, self.etiquetas_corpus, self.vectorizador, 10)
+        self.terminos = terminos_top_por_cluster(self.X_corpus, self.etiquetas_corpus, self.vectorizador, N_TERMINOS_TOP)
         self.huella = huella_particion(self.etiquetas_corpus)
         manuales, self.origen_nombres, self.aviso_nombres = elegir_nombres_manuales(
             self.etiquetas_corpus, self.nombres_persistidos)
@@ -150,7 +153,7 @@ class AgenteTriaje:
             "porcentaje": (conteo.values / conteo.values.sum() * 100).round(1),
         })
 
-    def sugerir(self, queja: str, n_similares: int = 3) -> ResultadoTriaje:
+    def sugerir(self, queja: str, n_similares: int = N_SIMILARES) -> ResultadoTriaje:
         limpio = preprocesar(queja)
         x = self.vectorizador.transform([limpio])
         if x.nnz == 0:

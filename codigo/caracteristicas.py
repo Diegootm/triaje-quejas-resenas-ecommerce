@@ -25,10 +25,10 @@ PARAMS_TFIDF = dict(max_features=5000, ngram_range=(1, 2), min_df=5, max_df=0.9)
 
 def construir_tfidf(
     textos: Sequence[str],
-    max_features: int = 5000,
-    ngram_range: tuple[int, int] = (1, 2),
-    min_df: int | float = 5,
-    max_df: float = 0.9,
+    max_features: int = PARAMS_TFIDF["max_features"],
+    ngram_range: tuple[int, int] = PARAMS_TFIDF["ngram_range"],
+    min_df: int | float = PARAMS_TFIDF["min_df"],
+    max_df: float = PARAMS_TFIDF["max_df"],
     stop_words: Sequence[str] | None = tuple(STOPWORDS_DOMINIO),
 ) -> tuple[sp.csr_matrix, TfidfVectorizer]:
     """Ajusta un ``TfidfVectorizer`` y devuelve ``(matriz, vectorizador)``.
@@ -47,25 +47,8 @@ def construir_tfidf(
     return matriz, vectorizador
 
 
-def transformar_textos(textos: Sequence[str], vectorizador: TfidfVectorizer) -> sp.csr_matrix:
-    """Transforma textos nuevos con un vectorizador ya ajustado (no recalcula el IDF).
-
-    Un texto sin ninguna palabra del vocabulario produce una fila de ceros
-    (``matriz[i].nnz == 0``); la interfaz debe detectarlo y avisar.
-    """
-    return vectorizador.transform(list(textos))
-
-
 def guardar_vectorizador(vectorizador: TfidfVectorizer, ruta: str | Path) -> None:
     """Serializa el vectorizador con ``joblib``."""
     ruta = Path(ruta)
     ruta.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(vectorizador, ruta)
-
-
-def cargar_vectorizador(ruta: str | Path) -> TfidfVectorizer:
-    """Carga un vectorizador serializado."""
-    ruta = Path(ruta)
-    if not ruta.exists():
-        raise FileNotFoundError(f"No existe {ruta}. Ejecuta primero el entrenamiento.")
-    return joblib.load(ruta)

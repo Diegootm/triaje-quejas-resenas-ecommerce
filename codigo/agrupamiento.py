@@ -1,8 +1,8 @@
 """Reducción con SVD truncada y agrupamiento con K-means (cuaderno 03).
 
 Pipeline del informe: TF-IDF (5000) -> TruncatedSVD (100) -> K-means.
-El modelo de referencia usa K=6 (:data:`K_ELEGIDO`), pero K se puede elegir
-en el rango :data:`K_MIN`..:data:`K_MAX` y comparar con :func:`barrido_k`.
+El modelo del informe usa K=6, pero K se puede elegir en el rango
+``K_MIN``..``K_MAX`` (``codigo.config``) y comparar con :func:`barrido_k`.
 """
 
 from __future__ import annotations
@@ -19,19 +19,19 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import TruncatedSVD
 from sklearn.metrics import silhouette_score
 
-SEMILLA = 42
-N_COMPONENTES_SVD = 100
-K_ELEGIDO = 6          # K del modelo de referencia del informe
-K_MIN = 2
-K_MAX = 12
-RANGO_K = range(K_MIN, K_MAX + 1)
-MUESTRA_SILUETA = 4000
-
-# Parámetros por defecto de la recomendación heurística de K (ver recomendar_k).
-K_MIN_RECOMENDADO = 3
-PROPORCION_MINIMA_GRUPO = 0.03
-TOLERANCIA_SILUETA = 0.10
-
+from codigo.config import (
+    K_MAX,
+    K_MIN,
+    K_MIN_RECOMENDADO,
+    K_REFERENCIA_INFORME,
+    MUESTRA_SILUETA,
+    N_COMPONENTES_SVD,
+    N_INIT,
+    PROPORCION_MINIMA_GRUPO,
+    RANGO_K,
+    SEMILLA,
+    TOLERANCIA_SILUETA,
+)
 
 def reducir_svd(
     matriz: sp.csr_matrix,
@@ -57,9 +57,9 @@ def validar_k(k: int, n_muestras: int | None = None, k_min: int = K_MIN, k_max: 
 
 def entrenar_kmeans(
     matriz: sp.csr_matrix | np.ndarray,
-    k: int = K_ELEGIDO,
+    k: int = K_REFERENCIA_INFORME,
     semilla: int = SEMILLA,
-    n_init: int = 10,
+    n_init: int = N_INIT,
     **kwargs: Any,
 ) -> KMeans:
     """Entrena K-means (inicialización k-means++, algoritmo de Lloyd)."""
@@ -108,17 +108,6 @@ def barrido_k(
         if progreso is not None:
             progreso(i, len(rango_k), k)
     return pd.DataFrame(filas), modelos
-
-
-def seleccionar_k(
-    matriz: sp.csr_matrix | np.ndarray,
-    rango_k: Sequence[int] = RANGO_K,
-    semilla: int = SEMILLA,
-    muestra_silueta: int = MUESTRA_SILUETA,
-) -> pd.DataFrame:
-    """Barrido de K: devuelve solo la tabla de :func:`barrido_k` (inercia, silueta, tamaños)."""
-    tabla, _ = barrido_k(matriz, rango_k, semilla, muestra_silueta)
-    return tabla
 
 
 @dataclass(frozen=True)
@@ -177,21 +166,8 @@ def recomendar_k(
     return RecomendacionK(k_rec, k_mejor, s_mejor, umbral, candidatos, descartados)
 
 
-def asignar_clusters(modelo: KMeans, matriz: sp.csr_matrix | np.ndarray) -> np.ndarray:
-    """Asigna cada fila al centroide más cercano (Fórmula 11)."""
-    return modelo.predict(matriz)
-
-
 def guardar_modelo(modelo: Any, ruta: str | Path) -> None:
     """Serializa un objeto (K-means o SVD) con ``joblib``."""
     ruta = Path(ruta)
     ruta.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(modelo, ruta)
-
-
-def cargar_modelo(ruta: str | Path) -> Any:
-    """Carga un objeto serializado con ``joblib``."""
-    ruta = Path(ruta)
-    if not ruta.exists():
-        raise FileNotFoundError(f"No existe {ruta}. Ejecuta primero el entrenamiento.")
-    return joblib.load(ruta)

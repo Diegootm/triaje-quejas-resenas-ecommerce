@@ -10,13 +10,13 @@ import scipy.sparse as sp
 from sklearn.cluster import KMeans
 from sklearn.metrics import adjusted_rand_score, silhouette_score
 
-SEMILLA = 42
+from codigo.config import MUESTRA_SILUETA, N_INIT_ESTABILIDAD, N_REPETICIONES_ESTABILIDAD, SEMILLA
 
 
 def coeficiente_silueta(
     matriz: sp.csr_matrix | np.ndarray,
     etiquetas: Sequence[int],
-    muestra: int = 4000,
+    muestra: int = MUESTRA_SILUETA,
     semilla: int = SEMILLA,
 ) -> float:
     """Silueta promedio (Fórmula 17) con distancia euclídea, sobre una muestra."""
@@ -33,14 +33,14 @@ def indice_rand_ajustado(etiquetas_a: Sequence[int], etiquetas_b: Sequence[int])
 def evaluar_estabilidad(
     matriz: sp.csr_matrix | np.ndarray,
     k: int,
-    n_repeticiones: int = 10,
+    n_repeticiones: int = N_REPETICIONES_ESTABILIDAD,
 ) -> pd.DataFrame:
     """Entrena K-means con semillas 0..n-1 y ``n_init=1`` y calcula el ARI de cada par.
 
     Se usa ``n_init=1`` a propósito: con ``n_init=10`` cada corrida elegiría su
     mejor inicialización y la estabilidad saldría artificialmente alta.
     """
-    particiones = [KMeans(n_clusters=k, random_state=s, n_init=1).fit_predict(matriz) for s in range(n_repeticiones)]
+    particiones = [KMeans(n_clusters=k, random_state=s, n_init=N_INIT_ESTABILIDAD).fit_predict(matriz) for s in range(n_repeticiones)]
     filas = [
         {"semilla_i": i, "semilla_j": j, "ari": adjusted_rand_score(particiones[i], particiones[j])}
         for i in range(n_repeticiones)
@@ -57,14 +57,3 @@ def comparar_etiquetas_manuales(df: pd.DataFrame, columna_manual: str, columna_c
     """
     tabla = pd.crosstab(df[columna_cluster], df[columna_manual])
     return tabla.div(tabla.sum(axis=1), axis=0)
-
-
-def resumen_evaluacion(matriz: sp.csr_matrix | np.ndarray, etiquetas: Sequence[int]) -> dict[str, float]:
-    """Silueta + tamaño del grupo más grande y más chico."""
-    tamanos = np.bincount(np.asarray(etiquetas))
-    return {
-        "silueta": coeficiente_silueta(matriz, etiquetas),
-        "n_grupos": float(len(tamanos)),
-        "grupo_mayor": float(tamanos.max()),
-        "grupo_menor": float(tamanos.min()),
-    }

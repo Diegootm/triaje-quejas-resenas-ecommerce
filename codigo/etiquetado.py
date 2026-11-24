@@ -18,9 +18,10 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 import numpy as np
-import pandas as pd
 import scipy.sparse as sp
 from sklearn.feature_extraction.text import TfidfVectorizer
+
+from codigo.config import ARCHIVO_HUELLA_NOMBRES, ARCHIVO_NOMBRES, N_TERMINOS_TOP
 
 NOMBRES_CLUSTER: dict[int, str] = {
     0: "Insatisfacción general de ajuste, color y tela",
@@ -42,11 +43,6 @@ NOMBRES_CLUSTER: dict[int, str] = {
 # que imprime entrenar_agente.py. Mientras sea None, NOMBRES_CLUSTER no se aplica
 # a ningún modelo.
 HUELLA_REFERENCIA: str | None = None
-
-# Nombres persistidos junto al modelo (formato sin cambios: {"0": "nombre", ...})
-# y archivo auxiliar con la huella de la partición a la que pertenecen.
-ARCHIVO_NOMBRES = "nombres_grupos.json"
-ARCHIVO_HUELLA_NOMBRES = "nombres_grupos_huella.json"
 
 
 def huella_particion(etiquetas: Sequence[int]) -> str:
@@ -164,7 +160,7 @@ def terminos_top_por_cluster(
     matriz: sp.csr_matrix,
     etiquetas: Sequence[int],
     vectorizador: TfidfVectorizer,
-    n_terminos: int = 10,
+    n_terminos: int = N_TERMINOS_TOP,
 ) -> dict[int, list[str]]:
     """Términos con mayor peso TF-IDF promedio dentro de cada grupo."""
     etiquetas = np.asarray(etiquetas)
@@ -174,13 +170,6 @@ def terminos_top_por_cluster(
         medio = np.asarray(matriz[etiquetas == c].mean(axis=0)).ravel()
         resultado[int(c)] = list(vocab[medio.argsort()[::-1][:n_terminos]])
     return resultado
-
-
-def resenas_cercanas(distancias: np.ndarray, etiquetas: Sequence[int], cluster: int, n: int = 4) -> np.ndarray:
-    """Índices de las ``n`` reseñas del grupo más cercanas a su centroide (``kmeans.transform``)."""
-    etiquetas = np.asarray(etiquetas)
-    idx = np.where(etiquetas == cluster)[0]
-    return idx[np.argsort(distancias[idx, cluster])[:n]]
 
 
 def etiquetar_clusters(
@@ -193,35 +182,3 @@ def etiquetar_clusters(
         c: nombres_manuales.get(c) or f"Grupo {c}: " + ", ".join(list(terms)[:3])
         for c, terms in terminos.items()
     }
-
-
-def resumen_clusters(
-    df: pd.DataFrame,
-    columna_cluster: str,
-    columna_texto: str,
-    etiquetas: Mapping[int, str] | None = None,
-) -> pd.DataFrame:
-    """Tabla por grupo: nombre, tamaño, proporción, rating medio, % que recomienda y un ejemplo."""
-    filas = []
-    total = len(df)
-    for c, grupo in df.groupby(columna_cluster):
-        fila = {
-            "cluster": int(c),
-            "nombre": (etiquetas or {}).get(int(c), f"Grupo {c}"),
-            "n_resenas": len(grupo),
-            "proporcion": len(grupo) / total,
-            "ejemplo": str(grupo[columna_texto].iloc[0])[:200],
-        }
-        if "Rating" in grupo:
-            fila["rating_medio"] = grupo["Rating"].mean()
-        if "Recommended IND" in grupo:
-            fila["tasa_recomienda"] = grupo["Recommended IND"].mean()
-        filas.append(fila)
-    return pd.DataFrame(filas).sort_values("n_resenas", ascending=False).reset_index(drop=True)
-
-
-def exportar_etiquetas(resumen: pd.DataFrame, ruta: str | Path) -> None:
-    """Guarda el resumen de grupos en CSV (UTF-8)."""
-    ruta = Path(ruta)
-    ruta.parent.mkdir(parents=True, exist_ok=True)
-    resumen.to_csv(ruta, index=False, encoding="utf-8")
