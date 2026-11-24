@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 import joblib
 import numpy as np
@@ -78,6 +78,33 @@ def entrenar_kmeans(
     return modelo
 
 
+def _fila_barrido(k: int, km: KMeans, matriz: sp.csr_matrix | np.ndarray, muestra_silueta: int, semilla: int) -> dict:
+    """Inercia, silueta (sobre una muestra) y tamaños de grupo de un K ya entrenado."""
+    n = matriz.shape[0]
+    sil = silhouette_score(matriz, km.labels_, sample_size=min(muestra_silueta, n), random_state=semilla)
+    tamanos = np.bincount(km.labels_, minlength=k)
+    return {
+        "K": k,
+        "inercia": float(km.inertia_),
+        "silueta": float(sil),
+        "grupo_menor": int(tamanos.min()),
+        "grupo_mayor": int(tamanos.max()),
+        "proporcion_menor": float(tamanos.min() / n),
+    }
+
+
+def iterar_barrido_k(
+    matriz: sp.csr_matrix | np.ndarray,
+    rango_k: Sequence[int] = RANGO_K,
+    semilla: int = SEMILLA,
+    muestra_silueta: int = MUESTRA_SILUETA,
+) -> Iterator[tuple[dict, KMeans]]:
+    """Entrena un K tras otro y entrega ``(fila_de_la_tabla, modelo)`` apenas termina cada uno."""
+    for k in rango_k:
+        km = entrenar_kmeans(matriz, k=k, semilla=semilla)
+        yield _fila_barrido(k, km, matriz, muestra_silueta, semilla), km
+
+
 def barrido_k(
     matriz: sp.csr_matrix | np.ndarray,
     rango_k: Sequence[int] = RANGO_K,
@@ -96,23 +123,10 @@ def barrido_k(
     inercia, silueta...), para mostrar el avance real punto por punto.
     """
     rango_k = list(rango_k)
-    n = matriz.shape[0]
     filas, modelos = [], {}
-    for i, k in enumerate(rango_k, start=1):
-        km = entrenar_kmeans(matriz, k=k, semilla=semilla)
-        etiquetas = km.labels_
-        sil = silhouette_score(matriz, etiquetas, sample_size=min(muestra_silueta, n), random_state=semilla)
-        tamanos = np.bincount(etiquetas, minlength=k)
-        fila = {
-            "K": k,
-            "inercia": float(km.inertia_),
-            "silueta": float(sil),
-            "grupo_menor": int(tamanos.min()),
-            "grupo_mayor": int(tamanos.max()),
-            "proporcion_menor": float(tamanos.min() / n),
-        }
+    for i, (fila, km) in enumerate(iterar_barrido_k(matriz, rango_k, semilla, muestra_silueta), start=1):
         filas.append(fila)
-        modelos[k] = km
+        modelos[fila["K"]] = km
         if progreso is not None:
             progreso(i, len(rango_k), fila)
     return pd.DataFrame(filas), modelos

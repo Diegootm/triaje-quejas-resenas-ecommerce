@@ -24,7 +24,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-from app import estado, vista_k, vista_triaje  # noqa: E402
+from app import estado, vista_creacion, vista_k, vista_triaje  # noqa: E402
 
 
 def _configurar_pagina() -> None:
@@ -40,7 +40,8 @@ def main() -> None:
     k = estado.selector_k(base, decision)
     agente = estado.agente_activo(base, k)
     vista_triaje.barra_lateral(agente, decision)
-    t1, t2, t3, t4 = st.tabs(["Queja individual", "Lote CSV", "Grupos descubiertos", "Selección de K"])
+    t1, t2, t3, t4, t5 = st.tabs(
+        ["Queja individual", "Lote CSV", "Grupos descubiertos", "Selección de K", "Cómo el agente crea las categorías"])
     with t1:
         vista_triaje.pestana_texto(agente)
     with t2:
@@ -49,6 +50,8 @@ def main() -> None:
         vista_triaje.pestana_grupos(agente)
     with t4:
         vista_k.pestana_k(base, agente, decision)
+    with t5:
+        vista_creacion.pestana_creacion(base, decision)
 
 
 if __name__ == "__main__":

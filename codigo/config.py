@@ -76,3 +76,29 @@ TOL_LLOYD = 1e-4              # desplazamiento de centroides, relativo a la vari
 # --------------------------------------------------------------------------
 # Los grupos se numeran desde 1 SOLO al mostrarlos; modelos, huella, JSON e IDs internos usan 0.
 PRIMER_GRUPO_VISIBLE = 1
+
+# --------------------------------------------------------------------------
+# Pestaña "Cómo el agente crea las categorías" (app/vista_creacion.py)
+# --------------------------------------------------------------------------
+# Velocidades de reproducción: nombre -> (pausa por paso, pausa por detalle) en segundos.
+# Los cálculos son siempre reales; la pausa solo espacia lo que se muestra. ``None`` = ritmo
+# real: se espera lo que tardó de verdad el cálculo de cada paso (los detalles no esperan).
+VELOCIDADES: dict[str, tuple[float | None, float | None]] = {
+    "Velocidad real": (None, None),
+    "Lenta": (0.5, 0.1),
+    "Muy lenta": (1.2, 0.25),
+    "Didáctica": (2.5, 0.5),
+}
+VELOCIDAD_INICIAL = "Lenta"
+MINIATURAS_POR_FILA = 4       # mosaico de la fase 1 (11 miniaturas -> 3 filas)
+FILAS_MOSAICO = -(-len(RANGO_K) // MINIATURAS_POR_FILA)
+MINIATURA_ALTO_PX = 120
+TAMANO_PUNTO_MINIATURA = 2
+MAPA_ALTO_PX = 560
+SUBMUESTRA_MAPA = 1500        # el mapa y las miniaturas dibujan una muestra fija de este tamaño (medido: 4.675 puntos no son fluidos)
+MAPA_WEBGL = True             # el mapa grande se dibuja con WebGL (miniaturas: SVG, para no agotar los contextos)
+TAMANO_PUNTO_MAPA = 5
+ITERACIONES_ESTELA = 5        # cuántas posiciones anteriores de cada centroide deja marcadas
+PASOS_CONTEO = 6              # pasos con que sube el tamaño de cada grupo en la fase 3
+LARGO_FRAGMENTO_RESENA = 140  # caracteres de la reseña que se muestran al pasar el cursor
+ANCHO_LINEA_HOVER = 48

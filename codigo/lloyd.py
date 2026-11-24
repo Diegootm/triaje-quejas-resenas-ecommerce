@@ -113,28 +113,31 @@ def trayectoria_lloyd(X: np.ndarray, k: int, semilla: int = SEMILLA, **kwargs) -
     return list(iterar_lloyd(X, k, semilla, **kwargs))
 
 
-def calcular_arranques(
+def iterar_arranques(
     X: np.ndarray,
     k: int,
     semilla: int = SEMILLA,
     n_init: int = N_INIT,
     max_iter: int = MAX_ITER_LLOYD,
     tol: float = TOL_LLOYD,
-) -> list[Arranque]:
-    """Los ``n_init`` arranques de ``KMeans(k, random_state=semilla, n_init=n_init)``.
+) -> Iterator[Arranque]:
+    """Los ``n_init`` arranques de ``KMeans(k, random_state=semilla, n_init=n_init)``, de uno en uno.
 
     Se reproduce la secuencia de inicializaciones de scikit-learn: un único
     ``RandomState(semilla)`` que se consume en orden, un k-means++ por arranque. Depende de
     cómo la versión fijada de scikit-learn deriva las inicializaciones (ver
-    ``pruebas/test_lloyd.py``, que falla si cambia).
+    ``pruebas/test_lloyd.py``, que falla si cambia). Cada arranque se calcula al pedirlo.
     """
     X = np.asarray(X, dtype=np.float64)
     estado_aleatorio = np.random.RandomState(semilla)
-    arranques = []
     for indice in range(n_init):
         centros, _ = kmeans_plusplus(X, n_clusters=k, random_state=estado_aleatorio)
-        arranques.append(Arranque(indice, list(_lloyd_desde(X, centros, max_iter, tol))))
-    return arranques
+        yield Arranque(indice, list(_lloyd_desde(X, centros, max_iter, tol)))
+
+
+def calcular_arranques(X: np.ndarray, k: int, semilla: int = SEMILLA, n_init: int = N_INIT, **kwargs) -> list[Arranque]:
+    """Todos los arranques de :func:`iterar_arranques`."""
+    return list(iterar_arranques(X, k, semilla, n_init, **kwargs))
 
 
 def elegir_ganador(arranques: Sequence[Arranque]) -> Arranque:
@@ -172,6 +175,12 @@ class Proyeccion2D:
     centros2d: np.ndarray            # (T, k, 2) centroides de cada iteración
     varianza_explicada: float        # fracción de la varianza total de X que conservan los 2 ejes
     silueta_2d: float                # silueta de la partición final medida EN estos 2 ejes
+    media: np.ndarray                # (d,) centro de la proyección
+    ejes: np.ndarray                 # (2, d) ejes ortonormales
+
+    def proyectar(self, puntos: np.ndarray) -> np.ndarray:
+        """Proyecta puntos de 100 dimensiones (``(..., d)``) al mismo plano 2D que ``puntos2d``."""
+        return (np.asarray(puntos, dtype=np.float64) - self.media) @ self.ejes.T
 
 
 def _silueta_2d(puntos2d: np.ndarray, etiquetas: np.ndarray, semilla: int) -> float:
@@ -186,7 +195,8 @@ def _construir(nombre: str, X: np.ndarray, media: np.ndarray, ejes: np.ndarray,
     pila = np.stack([np.asarray(c, dtype=np.float64) for c in centros])            # (T, k, d)
     centros2d = ((pila.reshape(-1, X.shape[1]) - media) @ ejes.T).reshape(len(pila), -1, 2)
     varianza = float(puntos2d.var(axis=0).sum() / X.var(axis=0).sum())
-    return Proyeccion2D(nombre, puntos2d, centros2d, varianza, _silueta_2d(puntos2d, etiquetas_finales, semilla))
+    return Proyeccion2D(nombre, puntos2d, centros2d, varianza, _silueta_2d(puntos2d, etiquetas_finales, semilla),
+                        media, ejes)
 
 
 def proyectar_pca_puntos(

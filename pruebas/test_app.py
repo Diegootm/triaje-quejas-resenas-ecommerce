@@ -70,7 +70,8 @@ def test_arranca_con_el_k_del_agente():
     lateral = _textos(at.sidebar.markdown)
     assert f"K elegido por el agente: {k}" in lateral and "K manual" not in lateral
     assert at.sidebar.slider[0].value == k
-    assert [t.label for t in at.tabs] == ["Queja individual", "Lote CSV", "Grupos descubiertos", "Selección de K"]
+    assert [t.label for t in at.tabs] == ["Queja individual", "Lote CSV", "Grupos descubiertos", "Selección de K",
+                                          "Cómo el agente crea las categorías"]
 
 
 @NECESITA_MODELOS
@@ -157,3 +158,79 @@ def test_triaje_cli_numera_los_grupos_desde_1():
     assert re.findall(r"(\d+):", distancias) == ["1", "2", "3", "4", "5", "6"]
     assert "GRUPO SUGERIDO: 5 — Grupo 5:" in salida
     assert re.search(r"grupo [1-6]\]", salida) and "grupo 0]" not in salida
+
+
+# --------------------------------------------------------------------------
+# Pestaña "Cómo el agente crea las categorías"
+# --------------------------------------------------------------------------
+BOTON_CREAR = "Ver al agente crear las categorías"
+
+
+def _crear_app_sin_pausas(monkeypatch) -> AppTest:
+    """La app con la grabación vacía y sin esperas reales (los cálculos sí son reales)."""
+    from app import escena_creacion, vista_creacion
+    vista_creacion._repositorio.clear()
+    monkeypatch.setattr(escena_creacion, "esperar", lambda segundos: None)
+    return _app().run()
+
+
+@NECESITA_MODELOS
+def test_creacion_en_reposo_muestra_el_boton_la_velocidad_y_los_avisos_fijos():
+    from codigo.decision_k import cargar_decision
+    from app import vista_creacion
+    vista_creacion._repositorio.clear()
+    decision = cargar_decision(config.DIR_MODELOS)
+    at = _app().run()
+    assert not at.exception
+    assert any(b.label == BOTON_CREAR for b in at.button)
+    radio = next(r for r in at.radio if r.key == vista_creacion.CLAVE_VELOCIDAD)
+    assert list(radio.options) == list(config.VELOCIDADES) and radio.value == config.VELOCIDAD_INICIAL
+    avisos = _textos(at.caption)
+    assert "explica solo" in avisos and "varianza" in avisos
+    assert "separación del dibujo 2D, no la calidad del modelo" in avisos
+    assert f"{decision.silueta_de(decision.k_elegido):.4f}" in avisos                    # silueta del modelo (100 dim.)
+    assert f"mejor de {config.N_INIT} inicializaciones" in avisos
+    assert "Pulsa el botón" in _textos(at.markdown) and "ralentizada" in avisos
+    assert f"muestra fija de {config.SUBMUESTRA_MAPA:,} de las" in avisos and "Los cálculos usan las quejas completas" in avisos
+
+
+@NECESITA_MODELOS
+def test_el_aviso_de_velocidad_distingue_real_de_ralentizada():
+    at = _app().run()
+    radio = next(r for r in at.radio if r.options == list(config.VELOCIDADES))
+    radio.set_value("Velocidad real").run()
+    assert "Velocidad real." in _textos(at.caption) and "ralentizada" not in _textos(at.caption)
+    radio.set_value("Didáctica").run()
+    assert "ralentizada (Didáctica)" in _textos(at.caption) and "los cálculos son reales" in _textos(at.caption).lower()
+
+
+@NECESITA_MODELOS
+def test_ver_crear_las_categorias_calcula_en_vivo_una_vez_y_luego_repite_sin_recalcular(monkeypatch):
+    from codigo import creacion
+    llamadas = []
+    original = creacion.generar_eventos
+    monkeypatch.setattr(creacion, "generar_eventos", lambda *a, **k: llamadas.append(1) or original(*a, **k))
+    at = _crear_app_sin_pausas(monkeypatch)
+    next(b for b in at.button if b.label == BOTON_CREAR).click()
+    at.run()
+    assert not at.exception
+    k = at.sidebar.slider[0].value
+    assert f"#### Listo: {k} categorías creadas y nombradas" in _textos(at.markdown)
+    assert "Coincide con modelos/seleccion_k.json" in _textos(at.caption)
+    assert "Ya calculado" in _textos(at.caption) and len(llamadas) == 1
+    assert "Las 10 inicializaciones" in _textos(at.markdown) and "Nombre automático" in _textos(at.markdown)
+
+    next(b for b in at.button if b.label == BOTON_CREAR).click()
+    at.run()
+    assert not at.exception and len(llamadas) == 1                          # se repitió sin volver a calcular
+    assert f"#### Listo: {k} categorías creadas y nombradas" in _textos(at.markdown)
+
+
+@NECESITA_MODELOS
+def test_creacion_muestra_los_grupos_desde_1_y_el_nombre_del_informe(monkeypatch):
+    at = _crear_app_sin_pausas(monkeypatch)
+    next(b for b in at.button if b.label == BOTON_CREAR).click()
+    at.run()
+    texto = _textos(at.markdown)
+    assert "**Grupo 1** ·" in texto and "Grupo 0" not in texto
+    assert "Nombre del informe" in texto                                    # el modelo guardado trae nombres del informe
