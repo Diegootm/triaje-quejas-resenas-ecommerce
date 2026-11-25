@@ -39,18 +39,7 @@ Thumbs.db
 .env.*
 !.env.example
 
-# --- Datos crudos ---
-# El zip de Kaggle se puede versionar (no se ignora aquí).
-# Los CSV/XLSX crudos suelen ser pesados: se ignoran.
-datos/crudos/*.csv
-datos/crudos/*.xlsx
-datos/crudos/*.xls
-datos/crudos/*.json
-!datos/crudos/.gitkeep
 
-# --- Datos procesados ---
-datos/procesados/*
-!datos/procesados/.gitkeep
 
 # --- Modelos y artefactos entrenados ---
 modelos/*

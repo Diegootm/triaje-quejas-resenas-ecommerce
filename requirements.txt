@@ -15,6 +15,7 @@ joblib==1.4.2
 # Visualización
 matplotlib==3.9.2
 seaborn==0.13.2
+plotly==5.24.1
 
 # Jupyter
 jupyterlab==4.2.5
@@ -22,6 +23,10 @@ ipykernel==6.29.5
 
 # Interfaz web
 streamlit==1.40.1
+# pyarrow lo usa Streamlit para tablas y gráficos. Se fija porque las versiones
+# nuevas exigen NumPy 2 y el proyecto usa NumPy 1.26.4 (si no, la app falla con
+# "ImportError: pyarrow requires NumPy 2.0 or newer").
+pyarrow==17.0.0
 
 # Pruebas
 pytest==8.3.3

@@ -7,9 +7,9 @@ Agrupa los módulos reutilizables del flujo de trabajo:
 - :mod:`codigo.agrupamiento`: entrenamiento de KMeans y selección de ``k``.
 - :mod:`codigo.evaluacion`: métricas de calidad y estabilidad de clústeres.
 - :mod:`codigo.etiquetado`: términos representativos y nombres de clústeres.
+- :mod:`codigo.triaje`: agente que sugiere el grupo de una queja nueva.
 
-Los módulos son esqueletos documentados: las firmas públicas están definidas,
-pero la lógica se implementará en etapas posteriores.
+La lógica es la misma de los cuadernos 01-04 (mismos parámetros y semilla).
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

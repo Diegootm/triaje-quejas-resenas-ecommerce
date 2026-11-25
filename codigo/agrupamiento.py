@@ -1,71 +1,195 @@
-"""Agrupamiento de reseñas con KMeans.
+"""Reducción con SVD truncada y agrupamiento con K-means (cuaderno 03).
 
-Incluye la selección del número de clústeres ``k`` mediante una métrica
-interna (por defecto, coeficiente de silueta) y el entrenamiento/persistencia
-del modelo final.
+Pipeline del informe: TF-IDF (5000) -> TruncatedSVD (100) -> K-means.
+El modelo del informe usa K=6, pero K se puede elegir en el rango
+``K_MIN``..``K_MAX`` (``codigo.config``) y comparar con :func:`barrido_k`.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Iterator, Sequence
 
-if TYPE_CHECKING:  # pragma: no cover - solo para tipado
-    import numpy as np
-    import pandas as pd
-    import scipy.sparse as sp
-    from sklearn.cluster import KMeans
+import joblib
+import numpy as np
+import pandas as pd
+import scipy.sparse as sp
+from sklearn.cluster import KMeans
+from sklearn.decomposition import TruncatedSVD
+from sklearn.metrics import silhouette_score
 
+from codigo.config import (
+    K_MAX,
+    K_MIN,
+    K_MIN_RECOMENDADO,
+    K_REFERENCIA_INFORME,
+    MUESTRA_SILUETA,
+    N_COMPONENTES_SVD,
+    N_INIT,
+    PROPORCION_MINIMA_GRUPO,
+    RANGO_K,
+    SEMILLA,
+    TOLERANCIA_SILUETA,
+)
 
-def seleccionar_k(
-    matriz: "sp.csr_matrix | np.ndarray",
-    rango_k: Sequence[int] = range(2, 11),
-    metrica: str = "silhouette",
-    semilla: int = 42,
-) -> "pd.DataFrame":
-    """Evalúa varios valores de ``k`` y devuelve una tabla comparativa.
+def reducir_svd(
+    matriz: sp.csr_matrix,
+    n_componentes: int = N_COMPONENTES_SVD,
+    semilla: int = SEMILLA,
+) -> tuple[np.ndarray, TruncatedSVD]:
+    """Ajusta ``TruncatedSVD`` (LSA) y devuelve ``(matriz_reducida, svd)``.
 
-    TODO: probar ``k`` en ``rango_k``, calcular la métrica elegida y devolver
-    columnas ``k``, ``metrica`` y ``mejor_k`` sugerido.
+    Primero ajusta y luego proyecta con ``transform``, igual que hace el agente con
+    el corpus y con las quejas nuevas (``fit_transform`` da una proyección
+    ligeramente distinta). Así K-means se entrena sobre lo mismo que se usará.
     """
-    raise NotImplementedError("Pendiente: implementar la selección de k.")
+    svd = TruncatedSVD(n_components=n_componentes, random_state=semilla)
+    svd.fit(matriz)
+    return svd.transform(matriz), svd
+
+
+def validar_k(k: int, n_muestras: int | None = None, k_min: int = K_MIN, k_max: int = K_MAX) -> int:
+    """Comprueba que ``k`` sea un entero dentro de ``[k_min, k_max]`` y menor que ``n_muestras``."""
+    if isinstance(k, bool) or not isinstance(k, (int, np.integer)):
+        raise ValueError(f"K debe ser un entero; se recibió {k!r}")
+    k = int(k)
+    if not k_min <= k <= k_max:
+        raise ValueError(f"K debe estar entre {k_min} y {k_max}; se recibió {k}")
+    if n_muestras is not None and k >= n_muestras:
+        raise ValueError(f"K ({k}) debe ser menor que el número de reseñas ({n_muestras})")
+    return k
 
 
 def entrenar_kmeans(
-    matriz: "sp.csr_matrix | np.ndarray",
-    k: int,
-    semilla: int = 42,
-    n_init: int = 10,
+    matriz: sp.csr_matrix | np.ndarray,
+    k: int = K_REFERENCIA_INFORME,
+    semilla: int = SEMILLA,
+    n_init: int = N_INIT,
     **kwargs: Any,
-) -> "KMeans":
-    """Entrena y devuelve un modelo ``KMeans`` con ``k`` clústeres.
+) -> KMeans:
+    """Entrena K-means (inicialización k-means++, algoritmo de Lloyd)."""
+    if k < 2:
+        raise ValueError("k debe ser al menos 2")
+    if k >= matriz.shape[0]:
+        raise ValueError(f"k ({k}) debe ser menor que el número de filas ({matriz.shape[0]})")
+    modelo = KMeans(n_clusters=k, random_state=semilla, n_init=n_init, **kwargs)
+    modelo.fit(matriz)
+    return modelo
 
-    TODO: fijar ``random_state``, validar ``k`` y documentar los parámetros.
+
+def _fila_barrido(k: int, km: KMeans, matriz: sp.csr_matrix | np.ndarray, muestra_silueta: int, semilla: int) -> dict:
+    """Inercia, silueta (sobre una muestra) y tamaños de grupo de un K ya entrenado."""
+    n = matriz.shape[0]
+    sil = silhouette_score(matriz, km.labels_, sample_size=min(muestra_silueta, n), random_state=semilla)
+    tamanos = np.bincount(km.labels_, minlength=k)
+    return {
+        "K": k,
+        "inercia": float(km.inertia_),
+        "silueta": float(sil),
+        "grupo_menor": int(tamanos.min()),
+        "grupo_mayor": int(tamanos.max()),
+        "proporcion_menor": float(tamanos.min() / n),
+    }
+
+
+def iterar_barrido_k(
+    matriz: sp.csr_matrix | np.ndarray,
+    rango_k: Sequence[int] = RANGO_K,
+    semilla: int = SEMILLA,
+    muestra_silueta: int = MUESTRA_SILUETA,
+) -> Iterator[tuple[dict, KMeans]]:
+    """Entrena un K tras otro y entrega ``(fila_de_la_tabla, modelo)`` apenas termina cada uno."""
+    for k in rango_k:
+        km = entrenar_kmeans(matriz, k=k, semilla=semilla)
+        yield _fila_barrido(k, km, matriz, muestra_silueta, semilla), km
+
+
+def barrido_k(
+    matriz: sp.csr_matrix | np.ndarray,
+    rango_k: Sequence[int] = RANGO_K,
+    semilla: int = SEMILLA,
+    muestra_silueta: int = MUESTRA_SILUETA,
+    progreso: Callable[[int, int, dict], None] | None = None,
+) -> tuple[pd.DataFrame, dict[int, KMeans]]:
+    """Entrena K-means para cada K y devuelve ``(tabla, modelos)``.
+
+    Cada modelo se entrena con :func:`entrenar_kmeans` (mismos parámetros que el
+    modelo final), así que puede reutilizarse sin volver a entrenarlo.
+
+    La tabla tiene una fila por K con inercia (codo), silueta (sobre una muestra)
+    y el tamaño del grupo más chico y más grande. ``progreso(i, total, fila)`` se
+    llama después de terminar cada K con su fila de la tabla (``fila["K"]``,
+    inercia, silueta...), para mostrar el avance real punto por punto.
     """
-    raise NotImplementedError("Pendiente: implementar el entrenamiento de KMeans.")
+    rango_k = list(rango_k)
+    filas, modelos = [], {}
+    for i, (fila, km) in enumerate(iterar_barrido_k(matriz, rango_k, semilla, muestra_silueta), start=1):
+        filas.append(fila)
+        modelos[fila["K"]] = km
+        if progreso is not None:
+            progreso(i, len(rango_k), fila)
+    return pd.DataFrame(filas), modelos
 
 
-def asignar_clusters(
-    modelo: "KMeans",
-    matriz: "sp.csr_matrix | np.ndarray",
-) -> "np.ndarray":
-    """Asigna cada fila de ``matriz`` al clúster más cercano.
+@dataclass(frozen=True)
+class RecomendacionK:
+    """Resultado de :func:`recomendar_k`. ``k`` es ``None`` si ningún K cumple los filtros."""
 
-    TODO: devolver un arreglo de etiquetas alineado con las filas de entrada.
+    k: int | None
+    k_mejor_silueta: int | None
+    silueta_mejor: float | None
+    umbral_silueta: float | None
+    candidatos: list[int] = field(default_factory=list)
+    descartados: dict[int, str] = field(default_factory=dict)
+
+
+def recomendar_k(
+    tabla: pd.DataFrame,
+    k_min: int = K_MIN_RECOMENDADO,
+    proporcion_minima: float = PROPORCION_MINIMA_GRUPO,
+    tolerancia: float = TOLERANCIA_SILUETA,
+) -> RecomendacionK:
+    """Recomendación HEURÍSTICA de K a partir de la tabla de :func:`barrido_k`.
+
+    Regla (parsimonia sobre la silueta):
+
+    1. Se descartan los K menores que ``k_min`` (dos grupos no sirven para
+       distinguir tipos de queja) y los K cuyo grupo más chico tenga menos de
+       ``proporcion_minima`` del corpus (grupos degenerados).
+    2. Entre los restantes se toma la mejor silueta ``s*``.
+    3. Se recomienda el K MÁS PEQUEÑO cuya silueta sea al menos
+       ``s* - tolerancia * |s*|``.
+
+    No es una garantía de calidad: en este corpus la silueta es baja y casi
+    plana, y se calcula sobre una muestra, por lo que diferencias pequeñas
+    pueden ser ruido. La recomendación es un punto de partida para la
+    selección manual, no un reemplazo de la interpretación de los grupos.
     """
-    raise NotImplementedError("Pendiente: implementar la asignación de clústeres.")
+    descartados: dict[int, str] = {}
+    candidatos = []
+    for fila in tabla.sort_values("K").itertuples(index=False):
+        k = int(fila.K)
+        if k < k_min:
+            descartados[k] = f"K menor que {k_min}"
+        elif fila.proporcion_menor < proporcion_minima:
+            descartados[k] = f"grupo más chico con {fila.proporcion_menor:.1%} del corpus (< {proporcion_minima:.0%})"
+        else:
+            candidatos.append(k)
+
+    if not candidatos:
+        return RecomendacionK(None, None, None, None, [], descartados)
+
+    siluetas = tabla.set_index("K")["silueta"]
+    k_mejor = max(candidatos, key=lambda k: siluetas[k])
+    s_mejor = float(siluetas[k_mejor])
+    umbral = s_mejor - tolerancia * abs(s_mejor)
+    k_rec = min(k for k in candidatos if siluetas[k] >= umbral)
+    return RecomendacionK(k_rec, k_mejor, s_mejor, umbral, candidatos, descartados)
 
 
-def guardar_modelo(modelo: "KMeans", ruta: str) -> None:
-    """Serializa el modelo KMeans en ``ruta`` (por ejemplo con ``joblib``).
-
-    TODO: crear la carpeta destino si no existe.
-    """
-    raise NotImplementedError("Pendiente: implementar el guardado del modelo.")
-
-
-def cargar_modelo(ruta: str) -> Any:
-    """Carga un modelo KMeans serializado desde disco.
-
-    TODO: validar que el archivo exista y devolver el objeto.
-    """
-    raise NotImplementedError("Pendiente: implementar la carga del modelo.")
+def guardar_modelo(modelo: Any, ruta: str | Path) -> None:
+    """Serializa un objeto (K-means o SVD) con ``joblib``."""
+    ruta = Path(ruta)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(modelo, ruta)
